@@ -75,3 +75,4 @@ def add_diffusiondet_config(cfg):
                                  [0, 256], [0, 192],
                                  [0, 192], [0, 96],
                                  [0, 10000])
+    

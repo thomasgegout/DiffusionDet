@@ -1,0 +1,44 @@
+_BASE_: "Base-DiffusionDet.yaml"
+MODEL:
+  WEIGHTS: "models/diffdet_coco_res50_300boxes.pth"
+  RESNETS:
+    DEPTH: 50
+    STRIDE_IN_1X1: False
+  DiffusionDet:
+    NUM_PROPOSALS: 300  # Optimized for table detection
+    NUM_CLASSES: 6
+DATASETS:
+  TRAIN: ("pubtables_train",)
+  TEST:  ("pubtables_train",)
+SOLVER:
+  # Optimized for MPS M4 Max
+  IMS_PER_BATCH: 12        # Larger batch size for better MPS utilization
+  BASE_LR: 0.00012         # Slightly higher LR for larger batch size
+  STEPS: (8000, 14000)     # Adjusted for faster convergence
+  MAX_ITER: 18000          # Reduced iterations
+  WARMUP_ITERS: 500        # Shorter warmup
+  WARMUP_FACTOR: 0.1       # Gentler warmup
+  CHECKPOINT_PERIOD: 3000  # More frequent checkpoints
+  WEIGHT_DECAY: 0.0001
+  # Optimizer settings for MPS
+  OPTIMIZER: "ADAMW"
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_VALUE: 1.0
+    NORM_TYPE: 2.0
+DATALOADER:
+  NUM_WORKERS: 0           # Single-threaded is fastest for MPS
+  FILTER_EMPTY_ANNOTATIONS: False
+INPUT:
+  # Smaller input sizes for faster training
+  MIN_SIZE_TRAIN: (640, 704, 768, 800)  # Reduced size range
+  MAX_SIZE_TRAIN: 1200     # Reduced from 1333
+  MIN_SIZE_TEST: 800
+  MAX_SIZE_TEST: 1200
+  CROP:
+    ENABLED: True
+    SIZE: (384, 600)
+  FORMAT: "RGB"
+TEST:
+  EVAL_PERIOD: 3000        # More frequent evaluation
+OUTPUT_DIR: "./output_tables_mps"

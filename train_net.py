@@ -36,6 +36,30 @@ from diffusiondet import DiffusionDetDatasetMapper, add_diffusiondet_config, Dif
 from diffusiondet.util.model_ema import add_model_ema_configs, may_build_model_ema, may_get_ema_checkpointer, EMAHook, \
     apply_model_ema_and_restore, EMADetectionCheckpointer
 
+from detectron2.data.datasets import register_coco_instances
+
+# Register your custom dataset
+register_coco_instances(
+    "pubtables_train", 
+    {}, 
+    "datasets/PubTables-1M/train.json", 
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+)
+
+# Add validation dataset registration
+register_coco_instances(
+    "pubtables_val", 
+    {}, 
+    "datasets/PubTables-1M/val.json", 
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+)
+
+register_coco_instances(
+    "pubtables_test", 
+    {}, 
+    "datasets/PubTables-1M/test.json",  # If you have a separate test set
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+)
 
 class Trainer(DefaultTrainer):
     """ Extension of the Trainer class adapted to DiffusionDet. """
@@ -55,7 +79,7 @@ class Trainer(DefaultTrainer):
         model = self.build_model(cfg)
         optimizer = self.build_optimizer(cfg, model)
         data_loader = self.build_train_loader(cfg)
-
+        
         model = create_ddp_model(model, broadcast_buffers=False)
         self._trainer = (AMPTrainer if cfg.SOLVER.AMP.ENABLED else SimpleTrainer)(
             model, data_loader, optimizer
@@ -107,9 +131,7 @@ class Trainer(DefaultTrainer):
         """
         if output_folder is None:
             output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
-        if 'lvis' in dataset_name:
-            return LVISEvaluator(dataset_name, cfg, True, output_folder)
-        else:
+        else :
             return COCOEvaluator(dataset_name, cfg, True, output_folder)
 
     @classmethod
@@ -246,15 +268,41 @@ class Trainer(DefaultTrainer):
         return ret
 
 
+def get_available_device():
+    """
+    Detect the best available device for training.
+    Priority: CUDA > MPS > CPU
+    """
+    if torch.cuda.is_available():
+        return "cuda"
+    elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+        return "mps"
+    else:
+        return "cpu"
+
 def setup(args):
     """
     Create configs and perform basic setups.
     """
     cfg = get_cfg()
+    logger = logging.getLogger("detectron2")
+
+    cfg.MODEL.DEVICE = get_available_device()
+    logger.info(f"Using {cfg.MODEL.DEVICE} device")
     add_diffusiondet_config(cfg)
     add_model_ema_configs(cfg)
     cfg.merge_from_file(args.config_file)
     cfg.merge_from_list(args.opts)
+
+    if cfg.MODEL.DEVICE == "mps":
+         
+        torch.set_default_dtype(torch.float32)
+        cfg.SOLVER.AMP.ENABLED = False
+        cfg.DATALOADER.NUM_WORKERS = 0
+
+    elif cfg.MODEL.DEVICE == "cpu":
+        cfg.DATALOADER.NUM_WORKERS = 0
+
     cfg.freeze()
     default_setup(cfg, args)
     return cfg
