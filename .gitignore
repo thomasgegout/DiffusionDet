@@ -45,3 +45,6 @@ _darcs
 !/datasets/*.*
 /projects/*/datasets
 
+.venv
+mlruns
+.env

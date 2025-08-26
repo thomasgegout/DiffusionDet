@@ -38,6 +38,9 @@ from diffusiondet.util.model_ema import add_model_ema_configs, may_build_model_e
 
 from detectron2.data.datasets import register_coco_instances
 
+# Import MLflow hooks
+from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run, log_model_architecture
+
 # Register your custom dataset
 register_coco_instances(
     "pubtables_train", 
@@ -75,6 +78,11 @@ class Trainer(DefaultTrainer):
             setup_logger()
         cfg = DefaultTrainer.auto_scale_workers(cfg, comm.get_world_size())
 
+        # Initialize MLflow if this is the main process
+        start_mlflow_run(
+            cfg
+        )
+        
         # Assume these objects must be constructed in this order.
         model = self.build_model(cfg)
         optimizer = self.build_optimizer(cfg, model)
@@ -129,10 +137,7 @@ class Trainer(DefaultTrainer):
         For your own dataset, you can simply create an evaluator manually in your
         script and do not have to worry about the hacky if-else logic here.
         """
-        if output_folder is None:
-            output_folder = os.path.join(cfg.OUTPUT_DIR, "inference")
-        else :
-            return COCOEvaluator(dataset_name, cfg, True, output_folder)
+        return COCOEvaluator(dataset_name, cfg, True, output_folder)
 
     @classmethod
     def build_train_loader(cls, cfg):
@@ -257,15 +262,30 @@ class Trainer(DefaultTrainer):
             self._last_eval_results = self.test(self.cfg, self.model)
             return self._last_eval_results
 
-        # Do evaluation after checkpointer, because then if it fails,
-        # we can use the saved checkpoint to debug.
-        ret.append(hooks.EvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))
+        # Add MLflow hooks for logging metrics
+        if comm.is_main_process():
+            ret.append(MLflowHook(cfg, log_period=20))  # Log training metrics every 20 iterations
+            ret.append(MLflowEvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))  # Log validation metrics
+        else:
+            # Do evaluation after checkpointer, because then if it fails,
+            # we can use the saved checkpoint to debug.
+            ret.append(hooks.EvalHook(cfg.TEST.EVAL_PERIOD, test_and_save_results))
 
         if comm.is_main_process():
             # Here the default print/log frequency of each writer is used.
             # run writers in the end, so that evaluation metrics are written
             ret.append(hooks.PeriodicWriter(self.build_writers(), period=20))
         return ret
+
+    def train(self):
+        """
+        Override train method to properly handle MLflow logging
+        """
+        try:
+            return super().train()
+        finally:
+            # End MLflow run when training is complete
+            end_mlflow_run(self.model)
 
 
 def get_available_device():
@@ -286,8 +306,8 @@ def setup(args):
     """
     cfg = get_cfg()
     logger = logging.getLogger("detectron2")
-
-    cfg.MODEL.DEVICE = get_available_device()
+    if not hasattr(cfg.MODEL, "DEVICE"):
+        cfg.MODEL.DEVICE = get_available_device()
     logger.info(f"Using {cfg.MODEL.DEVICE} device")
     add_diffusiondet_config(cfg)
     add_model_ema_configs(cfg)

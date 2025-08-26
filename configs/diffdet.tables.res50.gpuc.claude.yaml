@@ -1,0 +1,144 @@
+_BASE_: "Base-DiffusionDet.yaml"
+MODEL:
+  WEIGHTS: "detectron2://ImageNet/torchvision/R-50.pkl"
+  MASK_ON: False
+  RESNETS:
+    DEPTH: 50
+  ANCHOR_GENERATOR:
+    SIZES: [[32], [64], [128], [256], [512]]  # One size for each in feature map
+    ASPECT_RATIOS: [[0.5, 1.0, 2.0]]  # Three aspect ratios (same for all in feature maps)
+  FPN:
+    IN_FEATURES: ["res2", "res3", "res4", "res5"]
+  DIFFUSIONDET:
+    NUM_CLASSES: 5  # Adjust based on your PubTables classes
+    NUM_PROPOSALS: 500
+    HIDDEN_DIM: 256
+    NUM_HEADS: 8
+    DROPOUT: 0.0
+    DIM_FEEDFORWARD: 2048
+    ENC_LAYERS: 6
+    DEC_LAYERS: 6
+    PRE_NORM: False
+    DEEP_SUPERVISION: True
+    NO_OBJECT_WEIGHT: 0.1
+    CLASS_WEIGHT: 2.0
+    BBOX_WEIGHT: 5.0
+    GIOU_WEIGHT: 2.0
+    FOCAL_ALPHA: 0.25
+    FOCAL_GAMMA: 2.0
+    SET_COST_CLASS: 2.0
+    SET_COST_BBOX: 5.0
+    SET_COST_GIOU: 2.0
+    # Diffusion
+    SNR_SCALE: 2.0
+    SAMPLE_STEP: 1
+    # Inference
+    USE_ENSEMBLE: True
+    USE_NMS: True
+    # Loss
+    USE_FOCAL: True
+    ALPHA: 0.25
+    GAMMA: 2.0
+    PRIOR_PROB: 0.01
+    SCORE_THRESH_TEST: 0.5
+    NMS_THRESH_TEST: 0.6
+  DEVICE: "cuda"
+
+DATASETS:
+  TRAIN: ("pubtables_train",)
+  TEST: ("pubtables_val",)
+
+SOLVER:
+  # Optimized for A100
+  IMS_PER_BATCH: 8  # Increase batch size for A100
+  BASE_LR: 0.0001  # 1e-4
+  STEPS: (210000, 250000)  # Learning rate decay steps
+  MAX_ITER: 270000  # Total iterations
+  GAMMA: 0.1
+  WEIGHT_DECAY: 0.0001
+  WEIGHT_DECAY_NORM: 0.0
+  BIAS_LR_FACTOR: 1.0
+  WEIGHT_DECAY_BIAS: 0.0001
+  
+  # Optimizer settings
+  OPTIMIZER: "ADAMW"
+  MOMENTUM: 0.9
+  NESTEROV: False
+  
+  # Gradient clipping
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "value"
+    CLIP_VALUE: 0.1
+    NORM_TYPE: 2.0
+  
+  # AMP for faster training on A100
+  AMP:
+    ENABLED: True
+  
+  # Checkpoint settings
+  CHECKPOINT_PERIOD: 5000
+  
+  # Warmup
+  WARMUP_FACTOR: 0.001
+  WARMUP_ITERS: 1000
+  WARMUP_METHOD: "linear"
+
+# EMA settings for better performance
+MODEL_EMA:
+  ENABLED: True
+  DECAY: 0.9999
+  DEVICE: ""
+  USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False
+
+DATALOADER:
+  NUM_WORKERS: 8  # Optimize for A100 system
+  ASPECT_RATIO_GROUPING: True
+  SAMPLER_TRAIN: "TrainingSampler"
+  REPEAT_THRESHOLD: 0.0
+
+INPUT:
+  # Image preprocessing
+  FORMAT: "BGR"
+  MASK_FORMAT: "polygon"
+  
+  # Data augmentation optimized for table detection
+  MIN_SIZE_TRAIN: (480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800)
+  MAX_SIZE_TRAIN: 1333
+  MIN_SIZE_TEST: 800
+  MAX_SIZE_TEST: 1333
+  
+  # Augmentations
+  CROP:
+    ENABLED: True
+    TYPE: "relative_range"
+    SIZE: [0.9, 0.9]
+  
+  # Random flip
+  RANDOM_FLIP: "horizontal"
+
+TEST:
+  EVAL_PERIOD: 5000
+  EXPECTED_RESULTS: []
+  KEYPOINT_OKS_SIGMAS: []
+  PRECISE_BN:
+    ENABLED: False
+    NUM_ITER: 200
+  AUG:
+    ENABLED: False
+    MIN_SIZES: (400, 500, 600, 700, 800, 900, 1000, 1100, 1200)
+    MAX_SIZE: 4000
+    FLIP: True
+
+OUTPUT_DIR: "./output_pubtables_a100"
+
+# Detectron2 specific settings
+VERSION: 2
+CUDNN_BENCHMARK: True  # Optimize for fixed input sizes
+
+# Seed for reproducibility
+SEED: 42
+
+# Additional optimizations for A100
+GLOBAL:
+  HACK: 1.0
