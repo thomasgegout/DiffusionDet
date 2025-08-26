@@ -13,6 +13,8 @@ import os
 from dotenv import load_dotenv
 import urllib3
 
+import tempfile
+import torch
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -168,15 +170,26 @@ def end_mlflow_run(model=None):
         
         if model is not None:
             try:
-                # Log the final model using client
-                mlflow.pytorch.log_model(model, artifact_path="model")
-                print("Model logged successfully to MLflow")
+                # Create a dummy input example for the model signature
+                import torch
+                dummy_input = torch.randn(1, 3, 800, 800)  # Typical input size for DiffusionDet
+                
+                mlflow.pytorch.log_model(
+                    model, 
+                    "model",  # Use positional argument instead of artifact_path
+                    input_example=dummy_input.numpy(),
+                    pip_requirements=[
+                        "torch>=1.10.0",
+                        "detectron2",
+                        "opencv-python",
+                        "pillow"
+                    ]
+                )
+                print("Model logged successfully to MLflow with signature")
             except Exception as e:
                 print(f"Warning: Could not log model to MLflow: {e}")
                 # Try alternative approach - save model as artifact
                 try:
-                    import tempfile
-                    import torch
                     with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as tmp:
                         torch.save(model.state_dict(), tmp.name)
                         client.log_artifact(run_id, tmp.name, "model")
