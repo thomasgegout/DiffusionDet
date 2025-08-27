@@ -77,7 +77,17 @@ class MLflowEvalHook(hooks.EvalHook):
                             self.client.log_metric(run_id, f"val_{metric_name}", metric_value, step=self.trainer.iter)
         
         if comm.is_main_process():
-            self.trainer.storage.put_scalars(**results, smoothing_hint=False)
+            # Flatten nested dictionaries for put_scalars
+            flattened_results = {}
+            for task, metrics in results.items():
+                if isinstance(metrics, dict):
+                    for metric_name, metric_value in metrics.items():
+                        if isinstance(metric_value, (int, float)):
+                            flattened_results[f"{task}_{metric_name}"] = metric_value
+                elif isinstance(metrics, (int, float)):
+                    flattened_results[task] = metrics
+            
+            self.trainer.storage.put_scalars(**flattened_results, smoothing_hint=False)
         
         return results
 
