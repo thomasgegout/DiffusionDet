@@ -18,7 +18,7 @@ import torch
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-load_dotenv("diffusiondet/.env")
+load_dotenv(".env")
 
 class MLflowHook(hooks.HookBase):
     """
