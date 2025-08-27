@@ -39,14 +39,14 @@ from diffusiondet.util.model_ema import add_model_ema_configs, may_build_model_e
 from detectron2.data.datasets import register_coco_instances
 
 # Import MLflow hooks
-from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run, log_model_architecture
+from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run
 
 # Register your custom dataset
 register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 # Add validation dataset registration
@@ -54,14 +54,14 @@ register_coco_instances(
     "pubtables_val", 
     {}, 
     "datasets/PubTables-1M/val.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):

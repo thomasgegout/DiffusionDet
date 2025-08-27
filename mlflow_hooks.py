@@ -95,24 +95,18 @@ def start_mlflow_run(cfg, experiment_name="thomas/DiffusionDet_Training_5"):
 
         client = MlflowClient()
         
-        # Check if experiment exists, if not create it with artifact location
-        try:
-            experiment = client.get_experiment_by_name(experiment_name)
-            if experiment is None:
-                experiment_id = client.create_experiment(
-                    experiment_name,
-                    artifact_location=os.getenv("MLFLOW_ARTIFACT_URI"),
-                    tags={"version": "v1", "priority": "P1"},
-                )
-            else:
-                experiment_id = experiment.experiment_id
-        except Exception:
-            # Fallback: create experiment if get_experiment_by_name fails
+        # Check if experiment exists, if not create it
+        
+        experiment = client.get_experiment_by_name(experiment_name)
+        if experiment is None:
             experiment_id = client.create_experiment(
                 experiment_name,
                 artifact_location=os.getenv("MLFLOW_ARTIFACT_URI"),
                 tags={"version": "v1", "priority": "P1"},
             )
+        else:
+            experiment_id = experiment.experiment_id
+    
 
         # Set experiment tags
         client.set_experiment_tag(experiment_id, "framework", "detectron2")
@@ -156,51 +150,6 @@ def start_mlflow_run(cfg, experiment_name="thomas/DiffusionDet_Training_5"):
             if value is not None:
                 client.log_param(run.info.run_id, key, value)
 
-
-def end_mlflow_run(model=None):
-    """
-    End the current MLflow run and optionally log the model
-    
-    Args:
-        model: PyTorch model to log (optional)
-    """
-    if comm.is_main_process() and mlflow.active_run():
-        client = MlflowClient()
-        run_id = mlflow.active_run().info.run_id
-        
-        if model is not None:
-            try:
-                # Create a dummy input example for the model signature
-                import torch
-                dummy_input = torch.randn(1, 3, 800, 800)  # Typical input size for DiffusionDet
-                
-                mlflow.pytorch.log_model(
-                    model, 
-                    "model",  # Use positional argument instead of artifact_path
-                    input_example=dummy_input.numpy(),
-                    pip_requirements=[
-                        "torch>=1.10.0",
-                        "detectron2",
-                        "opencv-python",
-                        "pillow"
-                    ]
-                )
-                print("Model logged successfully to MLflow with signature")
-            except Exception as e:
-                print(f"Warning: Could not log model to MLflow: {e}")
-                # Try alternative approach - save model as artifact
-                try:
-                    with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as tmp:
-                        torch.save(model.state_dict(), tmp.name)
-                        client.log_artifact(run_id, tmp.name, "model")
-                        os.unlink(tmp.name)
-                    print("Model state dict logged as artifact using client")
-                except Exception as e2:
-                    print(f"Alternative model logging also failed: {e2}")
-        
-        # End run using standard mlflow call (client doesn't have end_run method)
-        mlflow.end_run()
-
 def log_model_architecture(model):
     """
     Log model architecture information to MLflow
@@ -224,3 +173,30 @@ def log_model_architecture(model):
             
         except Exception as e:
             print(f"Warning: Could not log model architecture: {e}")
+
+def end_mlflow_run(model=None):
+    """
+    End the current MLflow run and log the model
+    
+    Args:
+        model: PyTorch model to log 
+    """
+    if comm.is_main_process() and mlflow.active_run():
+        client = MlflowClient()
+        run_id = mlflow.active_run().info.run_id
+        
+        if model is not None:
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.pth', delete=False) as tmp:
+                    torch.save(model.state_dict(), tmp.name)
+                    client.log_artifact(run_id, tmp.name, "model")
+                    os.unlink(tmp.name)
+                print("Model state dict logged as artifact using client")
+            except Exception as e2:
+                print(f"Alternative model logging also failed: {e2}")
+    
+            log_model_architecture(model)
+        else :
+            print("No model provided to log.")
+
+        mlflow.end_run()
