@@ -1,6 +1,6 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "models/diffdet_coco_res50_300boxes.pth"
+  WEIGHTS: "models/model_0004999.pth"
   DEVICE: "cuda"
   RESNETS:
     DEPTH: 50
@@ -17,14 +17,38 @@ SOLVER:
   STEPS: (350000, 420000)
   MAX_ITER: 450000
   WARMUP_ITERS: 1000
-  WARMUP_FACTOR: 0.01
+  WARMUP_FACTOR: 0.001  # Better warmup factor
+  WARMUP_METHOD: "linear"  # Better warmup method
   CHECKPOINT_PERIOD: 200
+  # Optimizer settings
+  OPTIMIZER: "ADAMW"
+  WEIGHT_DECAY: 0.0001
+  MOMENTUM: 0.9
+  # Better LR scheduling
+  GAMMA: 0.1  # LR decay factor
+  # AMP for faster training and memory efficiency
+  AMP:
+    ENABLED: True
+  # Gradient clipping for training stability
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 1.0
+    NORM_TYPE: 2.0
+# EMA for better model performance
+MODEL_EMA:
+  ENABLED: True
+  DECAY: 0.9999
+  DEVICE: ""
+  USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False
 INPUT:
   CROP:
     ENABLED: True
   FORMAT: "RGB"
 OUTPUT_DIR: "./output_tables"
 DATALOADER:
-  NUM_WORKERS: 108
+  NUM_WORKERS: 16  # Optimal for 32 cores (half cores for data loading)
+  ASPECT_RATIO_GROUPING: True  # Group similar aspect ratios for efficiency
+  FILTER_EMPTY_ANNOTATIONS: False
 TEST:
   EVAL_PERIOD: 5000

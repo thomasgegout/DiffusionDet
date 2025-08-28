@@ -14,12 +14,14 @@ This script is a simplified version of the training script in detectron2/tools.
 import os
 import itertools
 import weakref
+import math
 from typing import Any, Dict, List, Set
 import logging
 from collections import OrderedDict
 
 import torch
 from fvcore.nn.precise_bn import get_bn_modules
+from torch.optim.lr_scheduler import _LRScheduler
 
 import detectron2.utils.comm as comm
 from detectron2.utils.logger import setup_logger
@@ -28,6 +30,7 @@ from detectron2.config import get_cfg
 from detectron2.data import build_detection_train_loader
 from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, launch, create_ddp_model, \
     AMPTrainer, SimpleTrainer, hooks
+from detectron2.engine.train_loop import HookBase
 from detectron2.evaluation import COCOEvaluator, LVISEvaluator, verify_results
 from detectron2.solver.build import maybe_add_gradient_clipping
 from detectron2.modeling import build_model
@@ -40,6 +43,76 @@ from detectron2.data.datasets import register_coco_instances
 
 # Import MLflow hooks
 from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run
+
+
+# ==========================================
+# Training Optimizations
+# ==========================================
+
+class CosineAnnealingWarmupLR(_LRScheduler):
+    """
+    Cosine Annealing LR Scheduler with Warmup for better convergence
+    """
+    
+    def __init__(self, optimizer, max_iter, warmup_iters=1000, warmup_factor=0.001, eta_min_ratio=0.01, last_epoch=-1):
+        self.max_iter = max_iter
+        self.warmup_iters = warmup_iters
+        self.warmup_factor = warmup_factor
+        self.eta_min_ratio = eta_min_ratio
+        super().__init__(optimizer, last_epoch)
+    
+    def get_lr(self):
+        if self.last_epoch < self.warmup_iters:
+            # Warmup phase: linear increase
+            alpha = self.last_epoch / self.warmup_iters
+            warmup_lr = [
+                base_lr * (self.warmup_factor * (1 - alpha) + alpha)
+                for base_lr in self.base_lrs
+            ]
+            return warmup_lr
+        else:
+            # Cosine annealing phase
+            progress = (self.last_epoch - self.warmup_iters) / (self.max_iter - self.warmup_iters)
+            progress = min(progress, 1.0)
+            
+            cosine_lr = [
+                self.eta_min_ratio * base_lr + 
+                (base_lr - self.eta_min_ratio * base_lr) * 
+                (1 + math.cos(math.pi * progress)) / 2
+                for base_lr in self.base_lrs
+            ]
+            return cosine_lr
+
+def apply_training_optimizations():
+    """Apply training optimizations"""
+    torch.backends.cudnn.benchmark = True  # Optimize cudnn for fixed input sizes
+    torch.backends.cudnn.deterministic = False  # Allow non-deterministic ops for speed
+    torch.set_num_threads(4)  # Limit PyTorch threads
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Applied training optimizations: CUDNN benchmark enabled, PyTorch threads limited")
+
+
+def print_training_config(cfg):
+    """Print important training configuration"""
+    logger = logging.getLogger(__name__)
+    logger.info("=== Training Configuration ===")
+    logger.info(f"AMP Enabled: {cfg.SOLVER.AMP.ENABLED}")
+    logger.info(f"EMA Enabled: {cfg.MODEL_EMA.ENABLED}")
+    if cfg.MODEL_EMA.ENABLED:
+        logger.info(f"EMA Decay: {cfg.MODEL_EMA.DECAY}")
+    logger.info(f"Optimizer: {cfg.SOLVER.OPTIMIZER}")
+    logger.info(f"Base LR: {cfg.SOLVER.BASE_LR}")
+    logger.info(f"Batch Size: {cfg.SOLVER.IMS_PER_BATCH}")
+    logger.info(f"Max Iterations: {cfg.SOLVER.MAX_ITER}")
+    logger.info(f"DataLoader Workers: {cfg.DATALOADER.NUM_WORKERS}")
+    logger.info(f"Gradient Clipping: {cfg.SOLVER.CLIP_GRADIENTS.ENABLED}")
+    logger.info("===============================")
+
+
+# ==========================================
+# Dataset Registration
+# ==========================================
 
 # Register your custom dataset
 register_coco_instances(
@@ -65,13 +138,16 @@ register_coco_instances(
 )
 
 class Trainer(DefaultTrainer):
-    """ Extension of the Trainer class adapted to DiffusionDet. """
+    """ Extension of the Trainer class adapted to DiffusionDet with optimizations. """
 
     def __init__(self, cfg):
         """
         Args:
             cfg (CfgNode):
         """
+        # Apply training optimizations before initialization
+        apply_training_optimizations()
+        
         super(DefaultTrainer, self).__init__()  # call grandfather's `__init__` while avoid father's `__init()`
         logger = logging.getLogger("detectron2")
         if not logger.isEnabledFor(logging.INFO):  # setup_logger is not called for d2
@@ -143,6 +219,26 @@ class Trainer(DefaultTrainer):
     def build_train_loader(cls, cfg):
         mapper = DiffusionDetDatasetMapper(cfg, is_train=True)
         return build_detection_train_loader(cfg, mapper=mapper)
+
+    @classmethod
+    def build_lr_scheduler(cls, cfg, optimizer):
+        """
+        Build enhanced LR scheduler with optional cosine annealing
+        """
+        # Check if cosine annealing is requested (can be added to config)
+        use_cosine_annealing = getattr(cfg.SOLVER, 'USE_COSINE_ANNEALING', False)
+        
+        if use_cosine_annealing:
+            return CosineAnnealingWarmupLR(
+                optimizer,
+                max_iter=cfg.SOLVER.MAX_ITER,
+                warmup_iters=cfg.SOLVER.WARMUP_ITERS,
+                warmup_factor=cfg.SOLVER.WARMUP_FACTOR,
+                eta_min_ratio=0.01
+            )
+        else:
+            # Use default step scheduler from parent class
+            return super().build_lr_scheduler(cfg, optimizer)
 
     @classmethod
     def build_optimizer(cls, cfg, model):
