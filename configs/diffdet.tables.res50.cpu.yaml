@@ -1,27 +1,54 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "models/diffdet_coco_res50_300boxes.pth"
+  WEIGHTS: "models/model_0015000.pth"
   DEVICE: "cpu"
   RESNETS:
     DEPTH: 50
     STRIDE_IN_1X1: False
   DiffusionDet:
-    NUM_PROPOSALS: 500 
+    NUM_PROPOSALS: 300 
     NUM_CLASSES: 6
 DATASETS:
   TRAIN: ("pubtables_train",)
   TEST:  ("pubtables_val",)
 SOLVER:
-  IMS_PER_BATCH: 1    
-  BASE_LR: 0.0001     
-  STEPS: (10000, 15000)
-  MAX_ITER: 2000    
-  WARMUP_ITERS: 10
-  CHECKPOINT_PERIOD: 50
+  IMS_PER_BATCH: 1
+  BASE_LR: 0.001
+  STEPS: (0, 420000)
+  MAX_ITER: 450000
+  WARMUP_ITERS: 0
+  WARMUP_FACTOR: 0.1  # Better warmup factor
+  WARMUP_METHOD: "linear"  # Better warmup method
+  CHECKPOINT_PERIOD: 200
+  # Optimizer settings
+  OPTIMIZER: "ADAMW"
+  WEIGHT_DECAY: 0.0001
+  MOMENTUM: 0.9
+  # Better LR scheduling
+  GAMMA: 0.1  # LR decay factor
+  # AMP for faster training and memory efficiency
+  AMP:
+    ENABLED: False
+  # Gradient clipping for training stability
+  CLIP_GRADIENTS:
+    ENABLED: True
+    CLIP_TYPE: "full_model"
+    CLIP_VALUE: 1.0
+    NORM_TYPE: 2.0
+# EMA for better model performance
+MODEL_EMA:
+  ENABLED: True
+  DECAY: 0.9999
+  DEVICE: ""
+  USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False
 INPUT:
   CROP:
     ENABLED: True
   FORMAT: "RGB"
 OUTPUT_DIR: "./output_tables"
+DATALOADER:
+  NUM_WORKERS: 0  # Optimal for 32 cores (half cores for data loading)
+  ASPECT_RATIO_GROUPING: True  # Group similar aspect ratios for efficiency
+  FILTER_EMPTY_ANNOTATIONS: False
 TEST:
-  EVAL_PERIOD: 100
+  EVAL_PERIOD: 5000

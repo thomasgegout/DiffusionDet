@@ -119,7 +119,7 @@ register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 # Add validation dataset registration
@@ -127,14 +127,14 @@ register_coco_instances(
     "pubtables_val", 
     {}, 
     "datasets/PubTables-1M/val.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -225,21 +225,15 @@ class Trainer(DefaultTrainer):
         """
         Build enhanced LR scheduler with optional cosine annealing
         """
-        # Check if cosine annealing is requested (can be added to config)
-        use_cosine_annealing = getattr(cfg.SOLVER, 'USE_COSINE_ANNEALING', False)
         
-        if use_cosine_annealing:
-            return CosineAnnealingWarmupLR(
-                optimizer,
-                max_iter=cfg.SOLVER.MAX_ITER,
-                warmup_iters=cfg.SOLVER.WARMUP_ITERS,
-                warmup_factor=cfg.SOLVER.WARMUP_FACTOR,
-                eta_min_ratio=0.01
-            )
-        else:
-            # Use default step scheduler from parent class
-            return super().build_lr_scheduler(cfg, optimizer)
-
+        return CosineAnnealingWarmupLR(
+            optimizer,
+            max_iter=cfg.SOLVER.MAX_ITER,
+            warmup_iters=cfg.SOLVER.WARMUP_ITERS,
+            warmup_factor=cfg.SOLVER.WARMUP_FACTOR,
+            eta_min_ratio=0.01
+        )
+        
     @classmethod
     def build_optimizer(cls, cfg, model):
         params: List[Dict[str, Any]] = []
