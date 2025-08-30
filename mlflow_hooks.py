@@ -36,23 +36,38 @@ class MLflowHook(hooks.HookBase):
 
     def after_step(self):
         """Log training metrics after each step"""
+
+        # Get all scalar values with their smoothing hints
+        # This mimics what PeriodicWriter does
         if self.trainer.iter % self._period == 0 and mlflow.active_run():
-            # Get the latest metrics from the trainer's storage
             storage = self.trainer.storage
             run_id = mlflow.active_run().info.run_id
             
-            # Log training loss
-            if "total_loss" in storage.latest():
-                self.client.log_metric(run_id, "train_loss", storage.latest()["total_loss"][0], step=self.trainer.iter)
+            # Get all scalar values with their smoothing hints
+            # This mimics what PeriodicWriter does
+            scalars_to_log = {}
             
-            # Log learning rate
-            if "lr" in storage.latest():
-                self.client.log_metric(run_id, "learning_rate", storage.latest()["lr"][0], step=self.trainer.iter)
-                
-            # Log other losses if available
-            for key, (value, _) in storage.latest().items():
-                if "loss" in key.lower() and key != "total_loss":
-                    self.client.log_metric(run_id, f"train_{key}", value, step=self.trainer.iter)
+            # Get smoothed values for losses
+            window_size = 20  # Same as your period
+            for key, history in storage._history.items():
+                try:
+                    # Check if history buffer has data by trying to get latest value
+                    latest_values = history.latest()
+                    if latest_values:  # Check if there are any values
+                        if "loss" in key.lower():
+                            # Use median for smoothing (same as Detectron2 default)
+                            smoothed_value = history.median(window_size)
+                            scalars_to_log[f"train_{key}"] = smoothed_value
+                        elif key == "lr":
+                            # Learning rate is usually not smoothed
+                            scalars_to_log["learning_rate"] = latest_values
+                except (IndexError, AttributeError):
+                    # Skip if no data available or buffer is empty
+                    continue
+             
+            # Log all metrics to MLflow
+            for metric_name, value in scalars_to_log.items():
+                self.client.log_metric(run_id, metric_name, value, step=self.trainer.iter)
 
 
 class MLflowEvalHook(hooks.EvalHook):

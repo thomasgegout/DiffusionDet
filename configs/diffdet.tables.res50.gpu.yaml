@@ -1,6 +1,6 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "models/model_0004999.pth"
+  WEIGHTS: "models/model_0025000.pth"
   DEVICE: "cuda"
   RESNETS:
     DEPTH: 50
@@ -12,14 +12,13 @@ DATASETS:
   TRAIN: ("pubtables_train",)
   TEST:  ("pubtables_val",)
 SOLVER:
-  IMS_PER_BATCH: 18
-  BASE_LR: 0.0001
-  STEPS: (350000, 420000)
+  IMS_PER_BATCH: 30
+  BASE_LR: 0.000025
   MAX_ITER: 450000
-  WARMUP_ITERS: 1000
-  WARMUP_FACTOR: 0.001  # Better warmup factor
+  WARMUP_ITERS: 0
+  WARMUP_FACTOR: 0.1  # Better warmup factor
   WARMUP_METHOD: "linear"  # Better warmup method
-  CHECKPOINT_PERIOD: 200
+  CHECKPOINT_PERIOD: 1000
   # Optimizer settings
   OPTIMIZER: "ADAMW"
   WEIGHT_DECAY: 0.0001
@@ -38,17 +37,13 @@ SOLVER:
 # EMA for better model performance
 MODEL_EMA:
   ENABLED: True
-  DECAY: 0.9999
+  DECAY: 0.999
   DEVICE: ""
   USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False
-INPUT:
-  CROP:
-    ENABLED: True
-  FORMAT: "RGB"
 OUTPUT_DIR: "./output_tables"
 DATALOADER:
-  NUM_WORKERS: 16  # Optimal for 32 cores (half cores for data loading)
+  NUM_WORKERS: 64
   ASPECT_RATIO_GROUPING: True  # Group similar aspect ratios for efficiency
   FILTER_EMPTY_ANNOTATIONS: False
 TEST:
-  EVAL_PERIOD: 5000
+  EVAL_PERIOD: 8000

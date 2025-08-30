@@ -43,7 +43,8 @@ from detectron2.data.datasets import register_coco_instances
 
 # Import MLflow hooks
 from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run
-
+import warnings
+warnings.filterwarnings("ignore", category=FutureWarning, module="detectron2")
 
 # ==========================================
 # Training Optimizations
@@ -54,7 +55,7 @@ class CosineAnnealingWarmupLR(_LRScheduler):
     Cosine Annealing LR Scheduler with Warmup for better convergence
     """
     
-    def __init__(self, optimizer, max_iter, warmup_iters=1000, warmup_factor=0.001, eta_min_ratio=0.01, last_epoch=-1):
+    def __init__(self, optimizer, max_iter, warmup_iters=1000, warmup_factor=0.001, eta_min_ratio=0.001, last_epoch=-1):
         self.max_iter = max_iter
         self.warmup_iters = warmup_iters
         self.warmup_factor = warmup_factor
@@ -119,22 +120,22 @@ register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 # Add validation dataset registration
 register_coco_instances(
     "pubtables_val", 
     {}, 
-    "datasets/PubTables-1M/val.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "datasets/PubTables-1M/val_50percent.json", 
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -161,15 +162,17 @@ class Trainer(DefaultTrainer):
         
         # Assume these objects must be constructed in this order.
         model = self.build_model(cfg)
+
         optimizer = self.build_optimizer(cfg, model)
         data_loader = self.build_train_loader(cfg)
+
+
+        self.scheduler = self.build_lr_scheduler(cfg, optimizer)
         
         model = create_ddp_model(model, broadcast_buffers=False)
         self._trainer = (AMPTrainer if cfg.SOLVER.AMP.ENABLED else SimpleTrainer)(
             model, data_loader, optimizer
         )
-
-        self.scheduler = self.build_lr_scheduler(cfg, optimizer)
 
         ########## EMA ############
         kwargs = {

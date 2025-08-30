@@ -22,11 +22,29 @@ def box_xyxy_to_cxcywh(x):
 
 # modified from torchvision to also return the union
 def box_iou(boxes1, boxes2):
-    area1 = box_area(boxes1)
-    area2 = box_area(boxes2)
+    # Fix invalid boxes before computing IoU
+    boxes1_fixed = boxes1.clone()
+    boxes2_fixed = boxes2.clone()
+    
+    # Ensure x2 >= x1 and y2 >= y1 for boxes1
+    x1_min = torch.minimum(boxes1_fixed[:, 0], boxes1_fixed[:, 2])
+    y1_min = torch.minimum(boxes1_fixed[:, 1], boxes1_fixed[:, 3])
+    x1_max = torch.maximum(boxes1_fixed[:, 0], boxes1_fixed[:, 2])
+    y1_max = torch.maximum(boxes1_fixed[:, 1], boxes1_fixed[:, 3])
+    boxes1_fixed = torch.stack([x1_min, y1_min, x1_max, y1_max], dim=1)
+    
+    # Ensure x2 >= x1 and y2 >= y1 for boxes2
+    x2_min = torch.minimum(boxes2_fixed[:, 0], boxes2_fixed[:, 2])
+    y2_min = torch.minimum(boxes2_fixed[:, 1], boxes2_fixed[:, 3])
+    x2_max = torch.maximum(boxes2_fixed[:, 0], boxes2_fixed[:, 2])
+    y2_max = torch.maximum(boxes2_fixed[:, 1], boxes2_fixed[:, 3])
+    boxes2_fixed = torch.stack([x2_min, y2_min, x2_max, y2_max], dim=1)
+    
+    area1 = box_area(boxes1_fixed)
+    area2 = box_area(boxes2_fixed)
 
-    lt = torch.max(boxes1[:, None, :2], boxes2[:, :2])  # [N,M,2]
-    rb = torch.min(boxes1[:, None, 2:], boxes2[:, 2:])  # [N,M,2]
+    lt = torch.max(boxes1_fixed[:, None, :2], boxes2_fixed[:, :2])  # [N,M,2]
+    rb = torch.min(boxes1_fixed[:, None, 2:], boxes2_fixed[:, 2:])  # [N,M,2]
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     inter = wh[:, :, 0] * wh[:, :, 1]  # [N,M]
@@ -47,13 +65,26 @@ def generalized_box_iou(boxes1, boxes2):
     and M = len(boxes2)
     """
     # degenerate boxes gives inf / nan results
-    # so do an early check
-    assert (boxes1[:, 2:] >= boxes1[:, :2]).all()
-    assert (boxes2[:, 2:] >= boxes2[:, :2]).all()
-    iou, union = box_iou(boxes1, boxes2)
+    # so do an early check and fix invalid boxes
+    # Fix boxes1: ensure x2 >= x1 and y2 >= y1
+    boxes1_fixed = boxes1.clone()
+    x1_min = torch.minimum(boxes1_fixed[:, 0], boxes1_fixed[:, 2])
+    y1_min = torch.minimum(boxes1_fixed[:, 1], boxes1_fixed[:, 3])
+    x1_max = torch.maximum(boxes1_fixed[:, 0], boxes1_fixed[:, 2])
+    y1_max = torch.maximum(boxes1_fixed[:, 1], boxes1_fixed[:, 3])
+    boxes1_fixed = torch.stack([x1_min, y1_min, x1_max, y1_max], dim=1)
+    
+    # Fix boxes2: ensure x2 >= x1 and y2 >= y1  
+    boxes2_fixed = boxes2.clone()
+    x2_min = torch.minimum(boxes2_fixed[:, 0], boxes2_fixed[:, 2])
+    y2_min = torch.minimum(boxes2_fixed[:, 1], boxes2_fixed[:, 3])
+    x2_max = torch.maximum(boxes2_fixed[:, 0], boxes2_fixed[:, 2])
+    y2_max = torch.maximum(boxes2_fixed[:, 1], boxes2_fixed[:, 3])
+    boxes2_fixed = torch.stack([x2_min, y2_min, x2_max, y2_max], dim=1)
+    iou, union = box_iou(boxes1_fixed, boxes2_fixed)
 
-    lt = torch.min(boxes1[:, None, :2], boxes2[:, :2])
-    rb = torch.max(boxes1[:, None, 2:], boxes2[:, 2:])
+    lt = torch.min(boxes1_fixed[:, None, :2], boxes2_fixed[:, :2])
+    rb = torch.max(boxes1_fixed[:, None, 2:], boxes2_fixed[:, 2:])
 
     wh = (rb - lt).clamp(min=0)  # [N,M,2]
     area = wh[:, :, 0] * wh[:, :, 1]

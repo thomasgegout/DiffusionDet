@@ -51,6 +51,10 @@ def add_diffusiondet_config(cfg):
     cfg.MODEL.DiffusionDet.SNR_SCALE = 2.0
     cfg.MODEL.DiffusionDet.SAMPLE_STEP = 1
 
+    # Box validation
+    cfg.MODEL.DiffusionDet.CLIP_BOXES = True
+    cfg.MODEL.DiffusionDet.MIN_BOX_SIZE = 1e-6
+
     # Inference
     cfg.MODEL.DiffusionDet.USE_NMS = True
 
