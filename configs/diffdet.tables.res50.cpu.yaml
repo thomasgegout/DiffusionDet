@@ -37,7 +37,7 @@ SOLVER:
     NORM_TYPE: 2.0
 # EMA for better model performance
 MODEL_EMA:
-  ENABLED: True
+  ENABLED: False
   DECAY: 0.9999
   DEVICE: ""
   USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False

@@ -40,7 +40,10 @@ from diffusiondet.util.model_ema import add_model_ema_configs, may_build_model_e
     apply_model_ema_and_restore, EMADetectionCheckpointer
 
 from detectron2.data.datasets import register_coco_instances
+from detectron2.data import DatasetCatalog, MetadataCatalog
 
+import tempfile
+import json 
 # Import MLflow hooks
 from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run
 import warnings
@@ -93,24 +96,6 @@ def apply_training_optimizations():
     logger = logging.getLogger(__name__)
     logger.info("Applied training optimizations: CUDNN benchmark enabled, PyTorch threads limited")
 
-
-def print_training_config(cfg):
-    """Print important training configuration"""
-    logger = logging.getLogger(__name__)
-    logger.info("=== Training Configuration ===")
-    logger.info(f"AMP Enabled: {cfg.SOLVER.AMP.ENABLED}")
-    logger.info(f"EMA Enabled: {cfg.MODEL_EMA.ENABLED}")
-    if cfg.MODEL_EMA.ENABLED:
-        logger.info(f"EMA Decay: {cfg.MODEL_EMA.DECAY}")
-    logger.info(f"Optimizer: {cfg.SOLVER.OPTIMIZER}")
-    logger.info(f"Base LR: {cfg.SOLVER.BASE_LR}")
-    logger.info(f"Batch Size: {cfg.SOLVER.IMS_PER_BATCH}")
-    logger.info(f"Max Iterations: {cfg.SOLVER.MAX_ITER}")
-    logger.info(f"DataLoader Workers: {cfg.DATALOADER.NUM_WORKERS}")
-    logger.info(f"Gradient Clipping: {cfg.SOLVER.CLIP_GRADIENTS.ENABLED}")
-    logger.info("===============================")
-
-
 # ==========================================
 # Dataset Registration
 # ==========================================
@@ -128,7 +113,7 @@ register_coco_instances(
     "pubtables_val", 
     {}, 
     "datasets/PubTables-1M/val_50percent.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
@@ -217,6 +202,7 @@ class Trainer(DefaultTrainer):
         script and do not have to worry about the hacky if-else logic here.
         """
         return COCOEvaluator(dataset_name, cfg, True, output_folder)
+    
 
     @classmethod
     def build_train_loader(cls, cfg):

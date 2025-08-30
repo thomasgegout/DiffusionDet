@@ -64,11 +64,10 @@ class MLflowHook(hooks.HookBase):
                 except (IndexError, AttributeError):
                     # Skip if no data available or buffer is empty
                     continue
-             
+            
             # Log all metrics to MLflow
             for metric_name, value in scalars_to_log.items():
                 self.client.log_metric(run_id, metric_name, value, step=self.trainer.iter)
-
 
 class MLflowEvalHook(hooks.EvalHook):
     """
