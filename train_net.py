@@ -48,6 +48,9 @@ from peft import LoraConfig, get_peft_model
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="detectron2")
 
+# Enable anomaly detection for debugging in-place operations
+torch.autograd.set_detect_anomaly(True)
+
 # ==========================================
 # Training Optimizations
 # ==========================================
@@ -104,7 +107,7 @@ register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 # Add validation dataset registration
@@ -112,14 +115,14 @@ register_coco_instances(
     "pubtables_val", 
     {}, 
     "datasets/PubTables-1M/val_50percent.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -215,7 +218,7 @@ class Trainer(DefaultTrainer):
         # Block Time MLP
         "head.head_series.*.block_time_mlp.1",
         ]
-        modules_to_save=[
+        modules_to_save = [
             # Classification heads - must be fully adapted for new classes
             "head.head_series.*.class_logits",
             
