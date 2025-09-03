@@ -194,11 +194,37 @@ class Trainer(DefaultTrainer):
 
     def build_peft_model(self):
         # setup LoRA
-        target_modules = ["head.head_series.2.self_attn"]
-        module_to_save = ["head.head_series.2.linear1"]
+        target_modules = [
+
+        # Detection head attention layers
+        "head.head_series.*.self_attn.out_proj",
+        "head.head_series.*.self_attn",
+        
+        # Dynamic Convolution Layers
+        "head.head_series.*.inst_interact.dynamic_layer",
+        "head.head_series.*.inst_interact.out_layer",
+
+        # Classification and regression heads
+        "head.head_series.{0-5}.class_logits",
+        "head.head_series.{0-5}.bboxes_delta",
+
+        # Time embedding
+        "head.time_mlp.1",
+        "head.time_mlp.3",
+
+        # Block Time MLP
+        "head.head_series.*.block_time_mlp.1",
+        ]
+        modules_to_save=[
+            # Classification heads - must be fully adapted for new classes
+            "head.head_series.*.class_logits",
+            
+            # Time embeddings - critical for diffusion process
+            "head.time_mlp.0",  # SinusoidalPositionEmbeddings
+        ],
         config = self.make_lora_config(
             target_modules=target_modules,
-            modules_to_save=module_to_save,
+            modules_to_save=modules_to_save,
         )
         peft_model = get_peft_model(self._trainer.model, config)
         peft_model.print_trainable_parameters()

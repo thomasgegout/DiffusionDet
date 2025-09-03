@@ -53,7 +53,7 @@ def create_val_subset(input_file, output_file, subset_ratio=0.5, seed=42):
         json.dump(subset_data, f, indent=2)
     
     print(f"Subset saved to: {output_file}")
-    print(f"Subset contains:")
+    print("Subset contains:")
     print(f"  - {len(subset_images)} images")
     print(f"  - {len(subset_annotations)} annotations")
     print(f"  - {len(subset_data['categories'])} categories")
