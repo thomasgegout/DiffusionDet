@@ -58,6 +58,15 @@ python train_net.py --num-gpus 8 \
     --config-file configs/diffdet.coco.res50.yaml
 ```
 
+If you want to run the Accelerate/DeepSpeed training helper, there's a convenience script:
+
+```bash
+# Edit NUM_GPUS in run_accelerate_training.sh as needed, then:
+./run_accelerate_training.sh
+```
+
+The script will launch `deepspeed` when GPUs are requested and falls back to CPU when NUM_GPUS=0.
+
 5. Evaluate DiffusionDet
 ```
 python train_net.py --num-gpus 8 \

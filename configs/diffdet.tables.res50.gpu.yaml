@@ -12,10 +12,10 @@ DATASETS:
   TRAIN: ("pubtables_train",)
   TEST:  ("pubtables_val",)
 SOLVER:
-  IMS_PER_BATCH: 30
+  IMS_PER_BATCH: 32
   BASE_LR: 0.000024
   MAX_ITER: 450000
-  WARMUP_ITERS: 0
+  WARMUP_ITERS: 1000
   WARMUP_FACTOR: 0.1  # Better warmup factor
   WARMUP_METHOD: "linear"  # Better warmup method
   CHECKPOINT_PERIOD: 1000

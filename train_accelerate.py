@@ -20,7 +20,7 @@ from torch.optim.lr_scheduler import _LRScheduler
 
 # Hugging Face imports
 from accelerate import Accelerator, DeepSpeedPlugin
-from accelerate.utils import set_seed, ProjectConfiguration
+from accelerate.utils import set_seed, ProjectConfiguration, DummyOptim, DummyScheduler
 from transformers import get_cosine_schedule_with_warmup
 
 # PEFT imports
@@ -58,21 +58,21 @@ register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_val", 
     {}, 
     "datasets/PubTables-1M/val_50percent.json", 
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",
-    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 
@@ -160,22 +160,13 @@ class DiffusionDetTrainer:
             logging_dir=os.path.join(self.args.output_dir, "logs"),
         )
         
-        # DeepSpeed configuration
-        deepspeed_plugin = None
-        if self.args.use_deepspeed:
-            deepspeed_plugin = DeepSpeedPlugin(
-                zero_stage=2,
-                gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-                gradient_clipping=1.0,
-                zero3_init_flag=False,
-            )
-         
-        # Create accelerator instance - let accelerator decide the device
+        # When using accelerate launch with --deepspeed_config_file, 
+        # accelerate will automatically create the DeepSpeed plugin
+        # based on the config file, so we don't need to create it manually
+        
+        # Create accelerator instance - let accelerate decide the device
         self.accelerator = Accelerator(
             project_config=project_config,
-            gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            mixed_precision='fp16' if self.args.fp16 else 'no',
-            deepspeed_plugin=deepspeed_plugin,
             log_with="mlflow" if self.args.use_mlflow else None,
         )
         
@@ -280,6 +271,12 @@ class DiffusionDetTrainer:
     
     def build_optimizer(self):
         """Build optimizer (same configuration as original)"""
+        # When using DeepSpeed with optimizer in config file, return None
+        # DeepSpeed will create its own optimizer from the config
+        if self.args.use_deepspeed:
+            logger.info("Returning None for optimizer because DeepSpeed config defines optimizer")
+            return None
+        
         # Get parameters that require gradients
         params_with_grad = []
         params_without_grad = []
@@ -306,6 +303,12 @@ class DiffusionDetTrainer:
     
     def build_scheduler(self):
         """Build learning rate scheduler"""
+        # When using DeepSpeed with scheduler in config file, return None
+        # DeepSpeed will create its own scheduler from the config
+        if self.args.use_deepspeed:
+            logger.info("Returning None for scheduler because DeepSpeed config defines scheduler")
+            return None
+            
         total_steps = self.cfg.SOLVER.MAX_ITER
         warmup_steps = self.cfg.SOLVER.WARMUP_ITERS
         
@@ -327,19 +330,45 @@ class DiffusionDetTrainer:
     
     def prepare_training(self):
         """Prepare training components with accelerator"""
-        (
-            self.model,
-            self.optimizer,
-            self.train_dataloader,
-            self.val_dataloader,
-            self.scheduler
-        ) = self.accelerator.prepare(
-            self.model,
-            self.optimizer,
-            self.train_dataloader,
-            self.val_dataloader,
-            self.scheduler
-        )
+        # When using DeepSpeed with optimizer/scheduler in config, 
+        # we only prepare model and dataloaders
+        if self.args.use_deepspeed and self.optimizer is None:
+            logger.info("Preparing model and dataloaders only (DeepSpeed handles optimizer/scheduler)")
+            (
+                self.model,
+                self.train_dataloader,
+                self.val_dataloader,
+            ) = self.accelerator.prepare(
+                self.model,
+                self.train_dataloader,
+                self.val_dataloader,
+            )
+            # With DeepSpeed, the model is wrapped and contains the optimizer and scheduler
+            # Access them through the DeepSpeed engine
+            if hasattr(self.model, 'optimizer'):
+                self.optimizer = self.model.optimizer
+            if hasattr(self.model, 'lr_scheduler'):
+                self.scheduler = self.model.lr_scheduler
+            else:
+                self.scheduler = None
+                
+            logger.info(f"DeepSpeed optimizer: {type(self.optimizer) if self.optimizer else 'None'}")
+            logger.info(f"DeepSpeed scheduler: {type(self.scheduler) if self.scheduler else 'None'}")
+        else:
+            # Standard preparation for non-DeepSpeed or DeepSpeed without config optimizer
+            (
+                self.model,
+                self.optimizer,
+                self.train_dataloader,
+                self.val_dataloader,
+                self.scheduler
+            ) = self.accelerator.prepare(
+                self.model,
+                self.optimizer,
+                self.train_dataloader,
+                self.val_dataloader,
+                self.scheduler
+            )
     
     def setup_mlflow(self):
         """Setup MLflow tracking with proper environment configuration"""
@@ -450,15 +479,35 @@ class DiffusionDetTrainer:
             logger.warning(f"Failed to log config parameters: {e}")
     
     def compute_loss(self, batch):
-        """Compute loss for a batch"""
+        """Compute loss for a batch during training"""
         # Forward pass - Accelerate should handle device placement
         outputs = self.model(batch)
         
-        # DiffusionDet returns losses in the outputs dict
+        # DiffusionDet returns losses in the outputs dict during training
         losses = {k: v for k, v in outputs.items() if 'loss' in k}
         total_loss = sum(losses.values())
         
         return total_loss, losses
+    
+    def compute_eval_loss(self, batch):
+        """Compute loss for a batch during evaluation"""
+        # Temporarily set model to training mode to get losses
+        was_training = self.model.training
+        self.model.train()
+        
+        try:
+            # Forward pass
+            outputs = self.model(batch)
+            
+            # Extract losses
+            losses = {k: v for k, v in outputs.items() if 'loss' in k}
+            total_loss = sum(losses.values())
+            
+            return total_loss, losses
+        finally:
+            # Restore original mode
+            if not was_training:
+                self.model.eval()
     
     def train_step(self, batch):
         """Single training step"""
@@ -470,17 +519,19 @@ class DiffusionDetTrainer:
             # Backward pass
             self.accelerator.backward(total_loss)
             
-            # Gradient clipping
+            # Gradient clipping - let accelerate handle this for DeepSpeed
             if self.cfg.SOLVER.CLIP_GRADIENTS.ENABLED:
                 self.accelerator.clip_grad_norm_(
                     self.model.parameters(),
                     self.cfg.SOLVER.CLIP_GRADIENTS.CLIP_VALUE
                 )
             
-            # Optimizer step
-            self.optimizer.step()
-            self.scheduler.step()
-            self.optimizer.zero_grad()
+            # For DeepSpeed, accelerate handles optimizer and scheduler steps
+            if not self.args.use_deepspeed:
+                # Only call these directly if not using DeepSpeed
+                self.optimizer.step()
+                self.scheduler.step()
+                self.optimizer.zero_grad()
         
         return total_loss, losses
     
@@ -512,7 +563,7 @@ class DiffusionDetTrainer:
                     except StopIteration:
                         break
                     
-                    val_loss, _ = self.compute_loss(batch)
+                    val_loss, _ = self.compute_eval_loss(batch)
                     total_val_loss += val_loss.item()
                     num_batches += 1
                     
