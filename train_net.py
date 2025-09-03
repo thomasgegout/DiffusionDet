@@ -221,7 +221,7 @@ class Trainer(DefaultTrainer):
             
             # Time embeddings - critical for diffusion process
             "head.time_mlp.0",  # SinusoidalPositionEmbeddings
-        ],
+        ]
         config = self.make_lora_config(
             target_modules=target_modules,
             modules_to_save=modules_to_save,
