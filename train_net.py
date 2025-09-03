@@ -30,8 +30,8 @@ from detectron2.config import get_cfg
 from detectron2.data import build_detection_train_loader
 from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, launch, create_ddp_model, \
     AMPTrainer, SimpleTrainer, hooks
-from detectron2.engine.train_loop import HookBase
-from detectron2.evaluation import COCOEvaluator, LVISEvaluator, verify_results
+
+from detectron2.evaluation import COCOEvaluator, verify_results
 from detectron2.solver.build import maybe_add_gradient_clipping
 from detectron2.modeling import build_model
 
@@ -40,12 +40,11 @@ from diffusiondet.util.model_ema import add_model_ema_configs, may_build_model_e
     apply_model_ema_and_restore, EMADetectionCheckpointer
 
 from detectron2.data.datasets import register_coco_instances
-from detectron2.data import DatasetCatalog, MetadataCatalog
 
-import tempfile
-import json 
 # Import MLflow hooks
 from mlflow_hooks import MLflowHook, MLflowEvalHook, start_mlflow_run, end_mlflow_run
+
+from peft import LoraConfig, get_peft_model
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning, module="detectron2")
 
@@ -105,7 +104,7 @@ register_coco_instances(
     "pubtables_train", 
     {}, 
     "datasets/PubTables-1M/train.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 # Add validation dataset registration
@@ -120,7 +119,7 @@ register_coco_instances(
     "pubtables_test", 
     {}, 
     "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -192,6 +191,28 @@ class Trainer(DefaultTrainer):
         # setup EMA
         may_build_model_ema(cfg, model)
         return model
+
+    def build_peft_model(self):
+        # setup LoRA
+        target_modules = ["head.head_series.2.self_attn"]
+        module_to_save = ["head.head_series.2.linear1"]
+        config = self.make_lora_config(
+            target_modules=target_modules,
+            modules_to_save=module_to_save,
+        )
+        peft_model = get_peft_model(self._trainer.model, config)
+        peft_model.print_trainable_parameters()
+        
+        # Update the trainer's internal model references
+        self._trainer.model = peft_model
+        self.checkpointer.model = peft_model
+        
+        # Update any hooks that reference the model
+        for hook in self._hooks:
+            if hasattr(hook, 'model'):
+                hook.model = peft_model
+    
+        return peft_model
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name, output_folder=None):
@@ -356,6 +377,14 @@ class Trainer(DefaultTrainer):
             ret.append(hooks.PeriodicWriter(self.build_writers(), period=20))
         return ret
 
+    def make_lora_config(self, target_modules, modules_to_save):
+        config = LoraConfig(
+            init_lora_weights="gaussian",
+            target_modules=target_modules,
+            modules_to_save=modules_to_save,
+        )
+        return config
+
     def train(self):
         """
         Override train method to properly handle MLflow logging
@@ -365,6 +394,7 @@ class Trainer(DefaultTrainer):
         finally:
             # End MLflow run when training is complete
             end_mlflow_run(self.model)
+    
 
 
 def get_available_device():
@@ -411,6 +441,7 @@ def main(args):
 
     if args.eval_only:
         model = Trainer.build_model(cfg)
+
         kwargs = may_get_ema_checkpointer(cfg, model)
         if cfg.MODEL_EMA.ENABLED:
             EMADetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR, **kwargs).resume_or_load(cfg.MODEL.WEIGHTS,
@@ -427,6 +458,7 @@ def main(args):
 
     trainer = Trainer(cfg)
     trainer.resume_or_load(resume=args.resume)
+    trainer.build_peft_model()
     return trainer.train()
 
 
