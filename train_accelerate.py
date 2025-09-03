@@ -30,6 +30,7 @@ from peft import LoraConfig, get_peft_model
 from detectron2.config import get_cfg
 from detectron2.data import build_detection_train_loader, build_detection_test_loader
 from detectron2.modeling import build_model
+from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.data.datasets import register_coco_instances
 
 # DiffusionDet imports
@@ -119,10 +120,12 @@ class DiffusionDetTrainer:
     def __init__(self, cfg, args):
         self.cfg = cfg
         self.args = args
-        
+    
         # Initialize accelerator with DeepSpeed
         self.setup_accelerator()
-        
+
+        self.cfg.MODEL.DEVICE = str(self.accelerator.device).split(':')[0]
+
         # Set seed for reproducibility
         if args.seed is not None:
             set_seed(args.seed)
@@ -166,33 +169,47 @@ class DiffusionDetTrainer:
                 gradient_clipping=1.0,
                 zero3_init_flag=False,
             )
-        
-        # Force CPU usage if specified
-        device_placement = True
-        if self.args.device == "cpu":
-            device_placement = False
-        
+         
+        # Create accelerator instance - let accelerator decide the device
         self.accelerator = Accelerator(
             project_config=project_config,
             gradient_accumulation_steps=self.args.gradient_accumulation_steps,
-            mixed_precision='fp16' if self.args.fp16 and self.args.device != "cpu" else 'no',
+            mixed_precision='fp16' if self.args.fp16 else 'no',
             deepspeed_plugin=deepspeed_plugin,
             log_with="mlflow" if self.args.use_mlflow else None,
-            device_placement=device_placement,
-            cpu=self.args.device == "cpu",
         )
         
+        logger.info(f"Using device: {self.accelerator.device}")
+        
+        self.cfg.MODEL.DEVICE = str(self.accelerator.device)
+        
     def build_model(self):
-        """Build the DiffusionDet model"""
+        """Build the DiffusionDet model and load pretrained weights using Detectron2's checkpointer"""
+        # Verify the device in config matches accelerator device
+        accelerator_device_type = str(self.accelerator.device).split(':')[0]
+        if self.cfg.MODEL.DEVICE != accelerator_device_type:
+            logger.warning(f"Config device ({self.cfg.MODEL.DEVICE}) doesn't match accelerator device ({accelerator_device_type})")
+            
+        logger.info(f"Building model with Detectron2 using device: {self.cfg.MODEL.DEVICE}")
         model = build_model(self.cfg)
         
-        # Ensure model is on the correct device
-        if self.args.device:
-            device = torch.device(self.args.device)
-            model = model.to(device)
+        # Use Detectron2's DetectionCheckpointer to load weights properly
+        checkpointer = DetectionCheckpointer(
+            model,
+            save_dir=self.cfg.OUTPUT_DIR,
+        )
         
-        logger.info(f"Model architecture:\n{model}")
-        logger.info(f"Model device: {next(model.parameters()).device}")
+        # Load pretrained weights if specified in config
+        if self.cfg.MODEL.WEIGHTS:
+            logger.info(f"Loading pretrained weights using DetectionCheckpointer: {self.cfg.MODEL.WEIGHTS}")
+            start_iter = checkpointer.resume_or_load(self.cfg.MODEL.WEIGHTS, resume=False)
+            logger.info(f"Model weights loaded successfully. Start iteration: {start_iter}")
+        else:
+            logger.info("No pretrained weights specified, using randomly initialized weights")
+        
+        # Log the device information for debugging
+        logger.info(f"Initial model device: {next(model.parameters()).device}")
+        logger.info(f"Model will be placed on accelerator device: {self.accelerator.device}")
         return model
     
     def build_peft_model(self):
@@ -410,7 +427,7 @@ class DiffusionDetTrainer:
                 "batch_size": str(self.cfg.SOLVER.IMS_PER_BATCH),
                 "learning_rate": str(self.cfg.SOLVER.BASE_LR),
                 "max_iter": str(self.cfg.SOLVER.MAX_ITER),
-                "device": str(self.args.device or self.cfg.MODEL.DEVICE),
+                                    "device": str(self.accelerator.device),
                 "gradient_accumulation_steps": str(self.args.gradient_accumulation_steps),
                 "fp16": str(self.args.fp16),
                 "use_deepspeed": str(self.args.use_deepspeed),
@@ -737,14 +754,9 @@ def setup_config(args):
     # Set output directory
     cfg.OUTPUT_DIR = args.output_dir
     
-    # Device setting
-    if args.device:
-        cfg.MODEL.DEVICE = args.device
-    
     # Disable EMA for simplicity in this implementation
     cfg.MODEL_EMA.ENABLED = False
     
-    cfg.freeze()
     return cfg
 
 
