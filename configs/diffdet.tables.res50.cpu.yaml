@@ -1,6 +1,6 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "models/model_0015000.pth"
+  WEIGHTS: "models/model_0025000.pth"
   DEVICE: "cpu"
   RESNETS:
     DEPTH: 50
