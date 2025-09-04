@@ -196,28 +196,61 @@ class Trainer(DefaultTrainer):
         return model
 
     def build_peft_model(self):
-        # setup LoRA
+        # setup LoRA - Target ALL layers starting with "head" and "backbone"
         target_modules = [
+            # Detection head attention layers
+            "head.head_series.*.self_attn.out_proj",
+            "head.head_series.*.self_attn",
+            
+            # Dynamic Convolution Layers
+            "head.head_series.*.inst_interact.dynamic_layer",
+            "head.head_series.*.inst_interact.out_layer",
 
-        # Detection head attention layers
-        "head.head_series.*.self_attn.out_proj",
-        "head.head_series.*.self_attn",
-        
-        # Dynamic Convolution Layers
-        "head.head_series.*.inst_interact.dynamic_layer",
-        "head.head_series.*.inst_interact.out_layer",
+            # Classification and regression heads
+            "head.head_series.{0-5}.class_logits",
+            "head.head_series.{0-5}.bboxes_delta",
 
-        # Classification and regression heads
-        "head.head_series.{0-5}.class_logits",
-        "head.head_series.{0-5}.bboxes_delta",
+            # Time embedding
+            "head.time_mlp.1",
+            "head.time_mlp.3",
 
-        # Time embedding
-        "head.time_mlp.1",
-        "head.time_mlp.3",
-
-        # Block Time MLP
-        "head.head_series.*.block_time_mlp.1",
+            # Block Time MLP
+            "head.head_series.*.block_time_mlp.1",
+            
+            # Backbone FPN layers - lateral and output convolutions
+            "backbone.fpn_lateral2",
+            "backbone.fpn_output2", 
+            "backbone.fpn_lateral3",
+            "backbone.fpn_output3",
+            "backbone.fpn_lateral4",
+            "backbone.fpn_output4",
+            "backbone.fpn_lateral5",
+            "backbone.fpn_output5",
+            
+            # Key ResNet backbone convolutions
+            "backbone.bottom_up.stem.conv1",
+            
+            # ResNet Stage 2 convolutions (selective)
+            "backbone.bottom_up.res2.0.conv1",
+            "backbone.bottom_up.res2.0.conv3",
+            "backbone.bottom_up.res2.0.shortcut",
+            
+            # ResNet Stage 3 convolutions (selective)
+            "backbone.bottom_up.res3.0.conv1", 
+            "backbone.bottom_up.res3.0.conv3",
+            "backbone.bottom_up.res3.0.shortcut",
+            
+            # ResNet Stage 4 convolutions (selective)
+            "backbone.bottom_up.res4.0.conv1",
+            "backbone.bottom_up.res4.0.conv3", 
+            "backbone.bottom_up.res4.0.shortcut",
+            
+            # ResNet Stage 5 convolutions (selective)
+            "backbone.bottom_up.res5.0.conv1",
+            "backbone.bottom_up.res5.0.conv3",
+            "backbone.bottom_up.res5.0.shortcut",
         ]
+        
         modules_to_save = [
             # Classification heads - must be fully adapted for new classes
             "head.head_series.*.class_logits",
@@ -225,6 +258,7 @@ class Trainer(DefaultTrainer):
             # Time embeddings - critical for diffusion process
             "head.time_mlp.0",  # SinusoidalPositionEmbeddings
         ]
+        
         config = self.make_lora_config(
             target_modules=target_modules,
             modules_to_save=modules_to_save,
@@ -411,6 +445,10 @@ class Trainer(DefaultTrainer):
             init_lora_weights="gaussian",
             target_modules=target_modules,
             modules_to_save=modules_to_save,
+            r=8,  # Reduced rank for more comprehensive layer coverage
+            lora_alpha=16,  # Reduced alpha proportionally
+            lora_dropout=0.1,
+            bias="none",
         )
         return config
 

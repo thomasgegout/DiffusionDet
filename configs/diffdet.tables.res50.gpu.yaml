@@ -12,7 +12,7 @@ DATASETS:
   TRAIN: ("pubtables_train",)
   TEST:  ("pubtables_val",)
 SOLVER:
-  IMS_PER_BATCH: 32
+  IMS_PER_BATCH: 10
   BASE_LR: 0.000024
   MAX_ITER: 450000
   WARMUP_ITERS: 1000
@@ -25,7 +25,7 @@ SOLVER:
   MOMENTUM: 0.9
   # Better LR scheduling
   GAMMA: 0.1  # LR decay factor
-  # AMP for faster training and memory efficiency
+  # Disable Detectron2 AMP since we're using DeepSpeed BF16
   AMP:
     ENABLED: True
   # Gradient clipping for training stability
@@ -34,12 +34,10 @@ SOLVER:
     CLIP_TYPE: "full_model"
     CLIP_VALUE: 1.0
     NORM_TYPE: 2.0
-# EMA for better model performance
+# Disable EMA for DeepSpeed compatibility
 MODEL_EMA:
-  ENABLED: True
+  ENABLED: False
   DECAY: 0.999
-  DEVICE: ""
-  USE_EMA_WEIGHTS_FOR_EVAL_ONLY: False
 OUTPUT_DIR: "./output_tables"
 DATALOADER:
   NUM_WORKERS: 32  # Reduced from 64 to prevent multiprocessing issues

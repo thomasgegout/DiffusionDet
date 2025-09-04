@@ -225,6 +225,35 @@ class DiffusionDetTrainer:
 
             # Block Time MLP
             "head.head_series.*.block_time_mlp.1",
+            
+            # Backbone FPN layers - lateral and output convolutions
+            "backbone.fpn_lateral2",
+            "backbone.fpn_output2", 
+            "backbone.fpn_lateral3",
+            "backbone.fpn_output3",
+            "backbone.fpn_lateral4",
+            "backbone.fpn_output4",
+            "backbone.fpn_lateral5",
+            "backbone.fpn_output5",
+            
+            # Key ResNet backbone convolutions
+            "backbone.bottom_up.stem.conv1",
+            
+            # ResNet Stage 2 convolutions (selective)
+            "backbone.bottom_up.res2.0.conv1",
+            "backbone.bottom_up.res2.0.conv3",
+            
+            # ResNet Stage 3 convolutions (selective)
+            "backbone.bottom_up.res3.0.conv1", 
+            "backbone.bottom_up.res3.0.conv3",
+            
+            # ResNet Stage 4 convolutions (selective)
+            "backbone.bottom_up.res4.0.conv1",
+            "backbone.bottom_up.res4.0.conv3", 
+            
+            # ResNet Stage 5 convolutions (selective)
+            "backbone.bottom_up.res5.0.conv1",
+            "backbone.bottom_up.res5.0.conv3",
         ]
         
         modules_to_save = [
