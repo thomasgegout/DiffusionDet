@@ -55,26 +55,18 @@ logger = logging.getLogger(__name__)
 
 # Register datasets (same as original)
 register_coco_instances(
-    "pubtables_train", 
+    "docugami_train", 
     {}, 
-    "datasets/PubTables-1M/train.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "datasets/docugami/train.json", 
+    "table-data/recognition30/train/images"
 )
 
 register_coco_instances(
-    "pubtables_val", 
+    "docugami_val_test", 
     {}, 
-    "datasets/PubTables-1M/val_50percent.json", 
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "datasets/docugami/val_test.json", 
+    "table-data/recognition30/val_test/images"
 )
-
-register_coco_instances(
-    "pubtables_test", 
-    {}, 
-    "datasets/PubTables-1M/test.json",
-    "/home/exouser/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
-)
-
 
 class CosineAnnealingWarmupLR(_LRScheduler):
     """
@@ -130,15 +122,17 @@ class DiffusionDetTrainer:
         if args.seed is not None:
             set_seed(args.seed)
         
-        # Build model, data, and optimizer
+        # Build model, data
         self.model = self.build_model()
         self.train_dataloader = self.build_train_dataloader()
         self.val_dataloader = self.build_val_dataloader()
-        self.optimizer = self.build_optimizer()
-        self.scheduler = self.build_scheduler()
         
         # Apply LoRA
         self.model = self.build_peft_model()
+        
+        # Build optimizer and scheduler after LoRA is applied
+        self.optimizer = self.build_optimizer()
+        self.scheduler = self.build_scheduler()
         
         # Prepare with accelerator
         self.prepare_training()
@@ -300,11 +294,7 @@ class DiffusionDetTrainer:
     
     def build_optimizer(self):
         """Build optimizer (same configuration as original)"""
-        # When using DeepSpeed with optimizer in config file, return None
-        # DeepSpeed will create its own optimizer from the config
-        if self.args.use_deepspeed:
-            logger.info("Returning None for optimizer because DeepSpeed config defines optimizer")
-            return None
+        # Always create an optimizer - DeepSpeed will wrap it if needed
         
         # Get parameters that require gradients
         params_with_grad = []
@@ -332,11 +322,7 @@ class DiffusionDetTrainer:
     
     def build_scheduler(self):
         """Build learning rate scheduler"""
-        # When using DeepSpeed with scheduler in config file, return None
-        # DeepSpeed will create its own scheduler from the config
-        if self.args.use_deepspeed:
-            logger.info("Returning None for scheduler because DeepSpeed config defines scheduler")
-            return None
+        # Always create a scheduler - DeepSpeed will wrap it if needed
             
         total_steps = self.cfg.SOLVER.MAX_ITER
         warmup_steps = self.cfg.SOLVER.WARMUP_ITERS
@@ -359,45 +345,23 @@ class DiffusionDetTrainer:
     
     def prepare_training(self):
         """Prepare training components with accelerator"""
-        # When using DeepSpeed with optimizer/scheduler in config, 
-        # we only prepare model and dataloaders
-        if self.args.use_deepspeed and self.optimizer is None:
-            logger.info("Preparing model and dataloaders only (DeepSpeed handles optimizer/scheduler)")
-            (
-                self.model,
-                self.train_dataloader,
-                self.val_dataloader,
-            ) = self.accelerator.prepare(
-                self.model,
-                self.train_dataloader,
-                self.val_dataloader,
-            )
-            # With DeepSpeed, the model is wrapped and contains the optimizer and scheduler
-            # Access them through the DeepSpeed engine
-            if hasattr(self.model, 'optimizer'):
-                self.optimizer = self.model.optimizer
-            if hasattr(self.model, 'lr_scheduler'):
-                self.scheduler = self.model.lr_scheduler
-            else:
-                self.scheduler = None
-                
-            logger.info(f"DeepSpeed optimizer: {type(self.optimizer) if self.optimizer else 'None'}")
-            logger.info(f"DeepSpeed scheduler: {type(self.scheduler) if self.scheduler else 'None'}")
-        else:
-            # Standard preparation for non-DeepSpeed or DeepSpeed without config optimizer
-            (
-                self.model,
-                self.optimizer,
-                self.train_dataloader,
-                self.val_dataloader,
-                self.scheduler
-            ) = self.accelerator.prepare(
-                self.model,
-                self.optimizer,
-                self.train_dataloader,
-                self.val_dataloader,
-                self.scheduler
-            )
+        # Standard preparation - accelerator/DeepSpeed will handle wrapping appropriately
+        (
+            self.model,
+            self.optimizer,
+            self.train_dataloader,
+            self.val_dataloader,
+            self.scheduler
+        ) = self.accelerator.prepare(
+            self.model,
+            self.optimizer,
+            self.train_dataloader,
+            self.val_dataloader,
+            self.scheduler
+        )
+        
+        logger.info(f"Prepared optimizer: {type(self.optimizer)}")
+        logger.info(f"Prepared scheduler: {type(self.scheduler) if self.scheduler else 'None'}")
     
     def setup_mlflow(self):
         """Setup MLflow tracking with proper environment configuration"""

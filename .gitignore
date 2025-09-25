@@ -48,3 +48,8 @@ _darcs
 .venv
 mlruns
 .env
+
+voc2coco
+table-data*
+__MACOSX/
+results

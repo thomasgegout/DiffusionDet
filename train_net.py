@@ -51,8 +51,6 @@ from dotenv import load_dotenv
 load_dotenv()
 warnings.filterwarnings("ignore", category=FutureWarning, module="detectron2")
 
-# Enable anomaly detection for debugging in-place operations
-torch.autograd.set_detect_anomaly(True)
 
 # ==========================================
 # Training Optimizations
@@ -63,7 +61,7 @@ class CosineAnnealingWarmupLR(_LRScheduler):
     Cosine Annealing LR Scheduler with Warmup for better convergence
     """
     
-    def __init__(self, optimizer, max_iter, warmup_iters=1000, warmup_factor=0.001, eta_min_ratio=0.001, last_epoch=-1):
+    def __init__(self, optimizer, max_iter, warmup_iters=100, warmup_factor=0.001, eta_min_ratio=0.0001, last_epoch=-1):
         self.max_iter = max_iter
         self.warmup_iters = warmup_iters
         self.warmup_factor = warmup_factor
@@ -106,26 +104,19 @@ def apply_training_optimizations():
 # ==========================================
 PATH_WD = os.getenv("PATH_WD")
 # Register your custom dataset
-register_coco_instances(
-    "pubtables_train", 
-    {}, 
-    "datasets/PubTables-1M/train.json", 
-    f"{PATH_WD}/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
-)
 
-# Add validation dataset registration
 register_coco_instances(
-    "pubtables_val", 
+    "docugami_train", 
     {}, 
-    "datasets/PubTables-1M/val_50percent.json", 
-    f"{PATH_WD}/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "datasets/docugami/train.json", 
+    "table-data/recognition30/train/images"
 )
 
 register_coco_instances(
-    "pubtables_test", 
+    "docugami_val_test", 
     {}, 
-    "datasets/PubTables-1M/test.json",  # If you have a separate test set
-    f"{PATH_WD}/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+    "datasets/docugami/val_test.json", 
+    "table-data/recognition30/val_test/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -528,7 +519,7 @@ def main(args):
 
     trainer = Trainer(cfg)
     trainer.resume_or_load(resume=args.resume)
-    trainer.build_peft_model()
+    # trainer.build_peft_model()
     return trainer.train()
 
 
