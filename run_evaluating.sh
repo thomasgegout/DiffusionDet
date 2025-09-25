@@ -1,1 +1,2 @@
+#!/bin/bash
 source .venv/bin/activate && python train_net.py --config-file configs/diffdet.tables.res50.gpu.yaml --eval-only MODEL.WEIGHTS output_tables/model_0002599.pth
