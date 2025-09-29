@@ -48,3 +48,6 @@ _darcs
 .venv
 mlruns
 .env
+__MACOSX
+table-data
+results
