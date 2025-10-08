@@ -6,7 +6,6 @@ from pathlib import Path
 def create_val_subset(input_file, output_file, subset_ratio=0.5, seed=42):
     """
     Create a subset of validation data from a COCO format JSON file.
-    
     Args:
         input_file (str): Path to the input JSON file
         output_file (str): Path to save the subset JSON file
