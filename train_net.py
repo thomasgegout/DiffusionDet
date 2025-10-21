@@ -27,7 +27,7 @@ import detectron2.utils.comm as comm
 from detectron2.utils.logger import setup_logger
 from detectron2.checkpoint import DetectionCheckpointer
 from detectron2.config import get_cfg
-from detectron2.data import build_detection_train_loader
+from detectron2.data import build_detection_train_loader, build_detection_test_loader
 from detectron2.engine import DefaultTrainer, default_argument_parser, default_setup, launch, create_ddp_model, \
     AMPTrainer, SimpleTrainer, hooks
 
@@ -117,6 +117,20 @@ register_coco_instances(
     {}, 
     "datasets/docugami/val_test.json", 
     "table-data/recognition30/val_test/images"
+)
+
+register_coco_instances(
+    "pubtables_train", 
+    {}, 
+    "datasets/PubTables-1M/train.json", 
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
+)
+
+register_coco_instances(
+    "pubtables_val", 
+    {}, 
+    "datasets/PubTables-1M/val_06percent.json", 
+    "/Users/thomasgegout/.cache/huggingface/hub/datasets--bsmock--pubtables-1m/snapshots/35b1c097807e0b07ec5313879b85956b7b3890db/PubTables-1M-Structure/images"
 )
 
 class Trainer(DefaultTrainer):
@@ -288,6 +302,16 @@ class Trainer(DefaultTrainer):
         return build_detection_train_loader(cfg, mapper=mapper)
 
     @classmethod
+    def build_test_loader(cls, cfg, dataset_name):
+        """
+        Build test/validation loader with proper transformations.
+        Uses DiffusionDetDatasetMapper with is_train=False to ensure
+        images are properly resized to 1024x1024 for evaluation.
+        """
+        mapper = DiffusionDetDatasetMapper(cfg, is_train=False)
+        return build_detection_test_loader(cfg, dataset_name, mapper=mapper)
+
+    @classmethod
     def build_lr_scheduler(cls, cfg, optimizer):
         """
         Build enhanced LR scheduler with optional cosine annealing
@@ -455,7 +479,7 @@ class Trainer(DefaultTrainer):
         finally:
             # End MLflow run when training is complete
             end_mlflow_run(self.model)
-    
+
 
 
 def get_available_device():

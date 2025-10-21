@@ -10,7 +10,7 @@ MODEL:
   FPN:
     IN_FEATURES: ["res2", "res3", "res4", "res5"]
   ROI_HEADS:
-    IN_FEATURES: ["p2", "p3", "p4", "p5"]
+    IN_FEATURES: ['p3', 'p4', 'p5', 'p6']
   ROI_BOX_HEAD:
     POOLER_TYPE: "ROIAlignV2"
     POOLER_RESOLUTION: 7
@@ -32,7 +32,10 @@ SOLVER:
     NORM_TYPE: 2.0
 SEED: 23479 #42 #40244017 before #40244020 before #40244023 before
 INPUT:
-  MIN_SIZE_TRAIN: (480, 512, 544, 576, 608, 640, 672, 704, 736, 768, 800)
+  MIN_SIZE_TRAIN: (1024,)
+  MAX_SIZE_TRAIN: 1024
+  MIN_SIZE_TEST: 1024
+  MAX_SIZE_TEST: 1024
   CROP:
     ENABLED: False
     TYPE: "absolute_range"

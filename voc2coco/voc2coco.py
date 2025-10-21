@@ -38,7 +38,7 @@ def get_annpaths(ann_dir_path: str = None,
     return ann_paths
 
 
-def get_image_info(annotation_root, extract_num_from_imgid=True):
+def get_image_info(annotation_root, id=None):
     path = annotation_root.findtext('path')
     if path is None:
         filename = annotation_root.findtext('filename')
@@ -46,8 +46,9 @@ def get_image_info(annotation_root, extract_num_from_imgid=True):
         filename = os.path.basename(path)
     img_name = os.path.basename(filename)
     img_id = os.path.splitext(img_name)[0]
-    if extract_num_from_imgid and isinstance(img_id, str):
-        img_id = int(re.findall(r'\d+', img_id)[0])
+
+    if id is not None and isinstance(img_id, str):
+        img_id = id
 
     size = annotation_root.find('size')
     width = int(size.findtext('width'))
@@ -105,13 +106,15 @@ def convert_xmls_to_cocojson(annotation_paths: List[str],
     }
     bnd_id = 1  # START_BOUNDING_BOX_ID, TODO input as args ?
     print('Start converting !')
+    id = 0
     for a_path in tqdm(annotation_paths):
         # Read annotation xml
         ann_tree = ET.parse(a_path)
         ann_root = ann_tree.getroot()
 
         img_info = get_image_info(annotation_root=ann_root,
-                                  extract_num_from_imgid=extract_num_from_imgid)
+                                  id = id)
+        id += 1
         img_id = img_info['id']
         output_json_dict['images'].append(img_info)
 

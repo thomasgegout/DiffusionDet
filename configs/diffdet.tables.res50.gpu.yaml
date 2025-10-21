@@ -1,6 +1,6 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "output_tables/model_finetuned.pth"
+  WEIGHTS: ""
   DEVICE: "cuda"
   RESNETS:
     DEPTH: 50

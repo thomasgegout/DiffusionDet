@@ -1,6 +1,6 @@
 _BASE_: "Base-DiffusionDet.yaml"
 MODEL:
-  WEIGHTS: "output_tables/model_0002599.pth"
+  WEIGHTS: ""
   DEVICE: "cpu"
   RESNETS:
     DEPTH: 50
@@ -51,4 +51,4 @@ DATALOADER:
   ASPECT_RATIO_GROUPING: True  # Group similar aspect ratios for efficiency
   FILTER_EMPTY_ANNOTATIONS: False
 TEST:
-  EVAL_PERIOD: 5000
+  EVAL_PERIOD: 1000

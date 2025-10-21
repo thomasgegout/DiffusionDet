@@ -40,7 +40,10 @@ def build_transform_gen(cfg, is_train):
         tfm_gens.append(T.RandomFlip())
     # ResizeShortestEdge
     tfm_gens.append(T.ResizeShortestEdge(min_size, max_size, sample_style))
-
+    
+    # pad the image to have a 1024x1024 size
+    tfm_gens.append(T.FixedSizeCrop((max_size, max_size), pad_value=0))
+    
     if is_train:
         logger.info("TransformGens used in training: " + str(tfm_gens))
     return tfm_gens

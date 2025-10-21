@@ -29,7 +29,7 @@ import torch.nn.functional as F
 from torch import nn
 
 from detectron2.layers import batched_nms
-from detectron2.modeling import META_ARCH_REGISTRY, build_backbone, detector_postprocess
+from detectron2.modeling import META_ARCH_REGISTRY, detector_postprocess
 
 from detectron2.structures import Boxes, ImageList, Instances
 
@@ -37,11 +37,13 @@ from .loss import SetCriterionDynamicK, HungarianMatcherDynamicK
 from .head import DynamicHead
 from .util.box_ops import box_cxcywh_to_xyxy, box_xyxy_to_cxcywh
 from .util.misc import nested_tensor_from_tensor_list
+from EVA_backbone.eva_02 import EVA02_ViT, SimpleFeaturePyramid
+from functools import partial
+from detectron2.modeling.backbone.fpn import LastLevelMaxPool
 
 __all__ = ["DiffusionDet"]
 
 ModelPrediction = namedtuple('ModelPrediction', ['pred_noise', 'pred_x_start'])
-
 
 def exists(x) -> bool:
     """
@@ -224,8 +226,45 @@ class DiffusionDet(nn.Module):
         self.hidden_dim = cfg.MODEL.DiffusionDet.HIDDEN_DIM
         self.num_heads = cfg.MODEL.DiffusionDet.NUM_HEADS
 
+
+        embed_dim, depth, num_heads, dp = 768, 12, 12, 0.1
+        
         # Build Backbone for feature extraction
-        self.backbone = build_backbone(cfg)
+        self.backbone = SimpleFeaturePyramid(
+            net=EVA02_ViT(
+                img_size=1024,
+                patch_size=16,
+                embed_dim=embed_dim,
+                depth=depth,
+                num_heads=num_heads,
+                drop_path_rate=dp,
+                window_size=14,
+                mlp_ratio=4,
+                qkv_bias=True,
+                norm_layer=partial(nn.LayerNorm, eps=1e-6),
+                window_block_indexes=[
+                    # 2, 5, 8 11 for global attention
+                    0,
+                    1,
+                    3,
+                    4,
+                    6,
+                    7,
+                    9,
+                    10,
+                ],
+                residual_block_indexes=[],
+                use_rel_pos=True,
+                out_feature="last_feat",
+            ),
+            in_feature="last_feat",
+            out_channels=256,
+            scale_factors=(2.0, 1.0, 0.5),  # (4.0, 2.0, 1.0, 0.5) in ViTDet
+            top_block=LastLevelMaxPool(),
+            norm="LN",
+            square_pad=1024,
+        )
+        
         self.size_divisibility = self.backbone.size_divisibility
 
         # Diffusion process parameters

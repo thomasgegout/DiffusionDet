@@ -1,6 +1,6 @@
-table column header
 table column
-table projected row header
 table row
 table spanning cell
 table
+table column header
+table projected row header

@@ -122,9 +122,10 @@ class DynamicHead(nn.Module):
 
     @staticmethod
     def _init_box_pooler(cfg, input_shape):
-
+        
         in_features = cfg.MODEL.ROI_HEADS.IN_FEATURES
         pooler_resolution = cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION
+      
         pooler_scales = tuple(1.0 / input_shape[k].stride for k in in_features)
         sampling_ratio = cfg.MODEL.ROI_BOX_HEAD.POOLER_SAMPLING_RATIO
         pooler_type = cfg.MODEL.ROI_BOX_HEAD.POOLER_TYPE
