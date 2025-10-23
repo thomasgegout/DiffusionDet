@@ -68,6 +68,72 @@ class Dense(nn.Module):
         return self.dense(x)
 
 
+class PositionEmbeddingSine(nn.Module):
+    """
+    Sine-cosine positional encoding for spatial positions.
+    Similar to DINO's implementation.
+    """
+    def __init__(self, num_pos_feats=128, temperature=10000, normalize=True, scale=None):
+        super().__init__()
+        self.num_pos_feats = num_pos_feats
+        self.temperature = temperature
+        self.normalize = normalize
+        if scale is not None and normalize is False:
+            raise ValueError("normalize should be True if scale is passed")
+        if scale is None:
+            scale = 2 * math.pi
+        self.scale = scale
+
+    def forward(self, boxes):
+        """
+        Args:
+            boxes: (batch_size, num_boxes, 4) in format (x1, y1, x2, y2)
+        Returns:
+            pos: (batch_size, num_boxes, num_pos_feats * 4) positional embeddings
+        """
+        # Extract center coordinates and dimensions
+        x1, y1, x2, y2 = boxes.unbind(-1)
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        w = x2 - x1
+        h = y2 - y1
+        
+        # Normalize if needed
+        if self.normalize:
+            cx = cx / (boxes[..., 2].max() + 1e-6)
+            cy = cy / (boxes[..., 3].max() + 1e-6)
+            w = w / (boxes[..., 2].max() + 1e-6)
+            h = h / (boxes[..., 3].max() + 1e-6)
+        
+        # Create sine-cosine embeddings for each dimension
+        dim_t = torch.arange(self.num_pos_feats, dtype=torch.float32, device=boxes.device)
+        dim_t = self.temperature ** (2 * (dim_t // 2) / self.num_pos_feats)
+        
+        def get_embeddings(coords):
+            """Generate sine-cosine embeddings for a coordinate."""
+            # coords: (batch_size, num_boxes)
+            # Add dimension for broadcasting: (batch_size, num_boxes, 1)
+            coords = coords.unsqueeze(-1) * self.scale
+            # Broadcast and divide: (batch_size, num_boxes, num_pos_feats)
+            pos = coords / dim_t.unsqueeze(0).unsqueeze(0)
+            # Apply sin to even indices, cos to odd indices
+            pos_sin = pos[:, :, 0::2].sin()
+            pos_cos = pos[:, :, 1::2].cos()
+            # Interleave sin and cos
+            pos = torch.stack([pos_sin, pos_cos], dim=-1).flatten(-2)
+            return pos
+        
+        # Generate embeddings for all bbox components
+        pos_cx = get_embeddings(cx)  # (batch_size, num_boxes, num_pos_feats)
+        pos_cy = get_embeddings(cy)
+        pos_w = get_embeddings(w)
+        pos_h = get_embeddings(h)
+        
+        # Concatenate all positional embeddings
+        pos = torch.cat([pos_cx, pos_cy, pos_w, pos_h], dim=-1)  # (batch_size, num_boxes, num_pos_feats * 4)
+        return pos
+
+
 class DynamicHead(nn.Module):
 
     def __init__(self, cfg, roi_input_shape):
@@ -99,6 +165,15 @@ class DynamicHead(nn.Module):
             nn.GELU(),
             nn.Linear(time_dim, time_dim),
         )
+        
+        # Improved Positional Encodings (DINO-style)
+        num_proposals = cfg.MODEL.DiffusionDet.NUM_PROPOSALS
+        # Learned query positional embeddings
+        self.query_pos_embed = nn.Embedding(num_proposals, d_model)
+        # Sine-cosine spatial positional encoder
+        self.pos_encoder = PositionEmbeddingSine(d_model // 4, normalize=True)
+        # Projection layer to combine spatial encodings with model dimension
+        self.spatial_pos_proj = nn.Linear(d_model, d_model)
 
         # Init parameters.
         self.use_focal = cfg.MODEL.DiffusionDet.USE_FOCAL
@@ -144,6 +219,30 @@ class DynamicHead(nn.Module):
         )
         return box_pooler
 
+    def get_combined_pos_encoding(self, bboxes):
+        """
+        Generate combined positional encodings from learned and spatial components.
+        
+        Args:
+            bboxes: (batch_size, num_proposals, 4) bounding boxes
+            
+        Returns:
+            combined_pos: (batch_size, num_proposals, d_model) combined positional encodings
+        """
+        batch_size, num_proposals = bboxes.shape[:2]
+        
+        # Learned query positional embeddings (num_proposals, d_model)
+        query_pos = self.query_pos_embed.weight.unsqueeze(0).expand(batch_size, -1, -1)
+        
+        # Spatial positional encodings from bbox coordinates
+        spatial_pos = self.pos_encoder(bboxes)  # (batch_size, num_proposals, d_model)
+        spatial_pos = self.spatial_pos_proj(spatial_pos)  # Project to d_model
+        
+        # Combine learned and spatial encodings
+        combined_pos = query_pos + spatial_pos
+        
+        return combined_pos
+
     def forward(self, features, init_bboxes, t, init_features):
         # assert t shape (batch_size)
         time = self.time_mlp(t)
@@ -153,7 +252,9 @@ class DynamicHead(nn.Module):
 
         bs = len(features[0])
         bboxes = init_bboxes
-        num_boxes = bboxes.shape[1]
+
+        # Compute combined positional encodings (learned + spatial)
+        pos_encodings = self.get_combined_pos_encoding(bboxes)
 
         if init_features is not None:
             init_features = init_features[None].repeat(1, bs, 1)
@@ -162,11 +263,16 @@ class DynamicHead(nn.Module):
             proposal_features = None
         
         for head_idx, rcnn_head in enumerate(self.head_series):
-            class_logits, pred_bboxes, proposal_features = rcnn_head(features, bboxes, proposal_features, self.box_pooler, time)
+            # Pass positional encodings to each head
+            class_logits, pred_bboxes, proposal_features = rcnn_head(
+                features, bboxes, proposal_features, self.box_pooler, time, pos_encodings
+            )
             if self.return_intermediate:
                 inter_class_logits.append(class_logits)
                 inter_pred_bboxes.append(pred_bboxes)
             bboxes = pred_bboxes.detach()
+            # Update positional encodings for new bboxes
+            pos_encodings = self.get_combined_pos_encoding(bboxes)
 
         if self.return_intermediate:
             return torch.stack(inter_class_logits), torch.stack(inter_pred_bboxes)
@@ -231,10 +337,11 @@ class RCNNHead(nn.Module):
         self.scale_clamp = scale_clamp
         self.bbox_weights = bbox_weights
 
-    def forward(self, features, bboxes, pro_features, pooler, time_emb):
+    def forward(self, features, bboxes, pro_features, pooler, time_emb, pos_encodings=None):
         """
         :param bboxes: (N, nr_boxes, 4)
         :param pro_features: (N, nr_boxes, d_model)
+        :param pos_encodings: (N, nr_boxes, d_model) combined positional encodings
         """
 
         N, nr_boxes = bboxes.shape[:2]
@@ -250,9 +357,19 @@ class RCNNHead(nn.Module):
 
         roi_features = roi_features.view(N * nr_boxes, self.d_model, -1).permute(2, 0, 1)
 
-        # self_att.
+        # self_att with positional encodings.
         pro_features = pro_features.view(N, nr_boxes, self.d_model).permute(1, 0, 2)
-        pro_features2 = self.self_attn(pro_features, pro_features, value=pro_features)[0]
+        
+        # Add positional encodings to queries and keys if available
+        if pos_encodings is not None:
+            pos_encodings = pos_encodings.permute(1, 0, 2)  # (nr_boxes, N, d_model)
+            query = pro_features + pos_encodings
+            key = pro_features + pos_encodings
+        else:
+            query = pro_features
+            key = pro_features
+        
+        pro_features2 = self.self_attn(query, key, value=pro_features)[0]
         pro_features = pro_features + self.dropout1(pro_features2)
         pro_features = self.norm1(pro_features)
 
