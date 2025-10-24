@@ -291,14 +291,14 @@ class RCNNHead(nn.Module):
         self.d_model = d_model
         self.nhead = nhead
 
-        # Use deformable attention instead of standard multi-head attention
+        # Use deformable cross-attention for multi-scale feature gathering
         self.use_deformable_attn = cfg.MODEL.DiffusionDet.get("USE_DEFORMABLE_ATTN", True)
         
         if self.use_deformable_attn:
-            # Multi-scale deformable attention (DINO-style)
+            # Cross-attention: Multi-scale deformable attention for gathering FPN features
             n_levels = cfg.MODEL.DiffusionDet.get("DEFORM_ATTN_LEVELS", 4)
             n_points = cfg.MODEL.DiffusionDet.get("DEFORM_ATTN_POINTS", 4)
-            self.self_attn = MultiScaleDeformableAttention(
+            self.cross_attn = MultiScaleDeformableAttention(
                 embed_dim=d_model,
                 num_heads=nhead,
                 num_levels=n_levels,
@@ -307,10 +307,11 @@ class RCNNHead(nn.Module):
                 batch_first=True  # Important: we pass (bs, num_query, embed_dim) format
             )
             self.n_levels = n_levels
-        else:
-            # Standard multi-head attention (original)
-            self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+            self.dropout_cross = nn.Dropout(dropout)
+            self.norm_cross = nn.LayerNorm(d_model)
         
+        # Self-attention: Standard multi-head attention for inter-proposal communication
+        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
 
         self.inst_interact = DynamicConv(cfg)
 
@@ -379,11 +380,11 @@ class RCNNHead(nn.Module):
 
         roi_features = roi_features.view(N * nr_boxes, self.d_model, -1).permute(2, 0, 1)
       
-        # self_att with positional encodings.
+        # Attention layers: Cross-Attention → Self-Attention (Option B)
         pro_features = pro_features.view(N, nr_boxes, self.d_model).permute(1, 0, 2)
     
+        # ===== Step 1: Cross-Attention - Gather multi-scale spatial context from FPN =====
         if self.use_deformable_attn:
-            # Deformable attention path - use actual FPN multi-scale features
             # Query: proposal features (N, nr_boxes, d_model)
             query = pro_features.permute(1, 0, 2)  # (N, nr_boxes, d_model)
             
@@ -429,8 +430,8 @@ class RCNNHead(nn.Module):
             # Expand reference points for all levels
             reference_points = reference_points.unsqueeze(2).repeat(1, 1, len(features), 1)
             
-            # Apply deformable attention
-            pro_features2 = self.self_attn(
+            # Apply deformable cross-attention
+            pro_features_cross = self.cross_attn(
                 query=query,
                 value=value,
                 reference_points=reference_points,
@@ -438,21 +439,26 @@ class RCNNHead(nn.Module):
                 level_start_index=level_start_index
             )
             
-            pro_features2 = pro_features2.permute(1, 0, 2)  # Back to (nr_boxes, N, d_model)
-        else:
-            # Standard multi-head attention path (original)
-            # Add positional encodings to queries and keys if available
-            if pos_encodings is not None:
-                pos_encodings = pos_encodings.permute(1, 0, 2)  # (nr_boxes, N, d_model)
-                query = pro_features + pos_encodings
-                key = pro_features + pos_encodings
-            else:
-                query = pro_features
-                key = pro_features
+            pro_features_cross = pro_features_cross.permute(1, 0, 2)  # Back to (nr_boxes, N, d_model)
             
-            pro_features2 = self.self_attn(query, key, value=pro_features)[0]
+            # Residual connection and layer norm
+            pro_features = pro_features + self.dropout_cross(pro_features_cross)
+            pro_features = self.norm_cross(pro_features)
         
-        pro_features = pro_features + self.dropout1(pro_features2)
+        # ===== Step 2: Self-Attention - Inter-proposal communication =====
+        # Add positional encodings to queries and keys if available
+        if pos_encodings is not None:
+            pos_encodings_sa = pos_encodings.permute(1, 0, 2)  # (nr_boxes, N, d_model)
+            query = pro_features + pos_encodings_sa
+            key = pro_features + pos_encodings_sa
+        else:
+            query = pro_features
+            key = pro_features
+        
+        pro_features_self = self.self_attn(query, key, value=pro_features)[0]
+        
+        # Residual connection and layer norm
+        pro_features = pro_features + self.dropout1(pro_features_self)
         pro_features = self.norm1(pro_features)
 
         # inst_interact.
