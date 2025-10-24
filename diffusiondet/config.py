@@ -26,6 +26,11 @@ def add_diffusiondet_config(cfg):
     cfg.MODEL.DiffusionDet.NUM_REG = 3
     cfg.MODEL.DiffusionDet.NUM_HEADS = 6
 
+    # Deformable Attention (DINO-style)
+    cfg.MODEL.DiffusionDet.USE_DEFORMABLE_ATTN = True
+    cfg.MODEL.DiffusionDet.DEFORM_ATTN_LEVELS = 4  # Number of feature levels
+    cfg.MODEL.DiffusionDet.DEFORM_ATTN_POINTS = 4  # Sampling points per head per level
+
     # Dynamic Conv.
     cfg.MODEL.DiffusionDet.NUM_DYNAMIC = 2
     cfg.MODEL.DiffusionDet.DIM_DYNAMIC = 64

@@ -24,6 +24,8 @@ import torch.nn.functional as F
 from detectron2.modeling.poolers import ROIPooler
 from detectron2.structures import Boxes
 
+from .ops import MultiScaleDeformableAttention
+
 
 _DEFAULT_SCALE_CLAMP = math.log(100000.0 / 16)
 
@@ -287,9 +289,29 @@ class RCNNHead(nn.Module):
         super().__init__()
 
         self.d_model = d_model
+        self.nhead = nhead
 
-        # dynamic.
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        # Use deformable attention instead of standard multi-head attention
+        self.use_deformable_attn = cfg.MODEL.DiffusionDet.get("USE_DEFORMABLE_ATTN", True)
+        
+        if self.use_deformable_attn:
+            # Multi-scale deformable attention (DINO-style)
+            n_levels = cfg.MODEL.DiffusionDet.get("DEFORM_ATTN_LEVELS", 4)
+            n_points = cfg.MODEL.DiffusionDet.get("DEFORM_ATTN_POINTS", 4)
+            self.self_attn = MultiScaleDeformableAttention(
+                embed_dim=d_model,
+                num_heads=nhead,
+                num_levels=n_levels,
+                num_points=n_points,
+                dropout=dropout,
+                batch_first=True  # Important: we pass (bs, num_query, embed_dim) format
+            )
+            self.n_levels = n_levels
+        else:
+            # Standard multi-head attention (original)
+            self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        
+
         self.inst_interact = DynamicConv(cfg)
 
         self.linear1 = nn.Linear(d_model, dim_feedforward)
@@ -343,33 +365,93 @@ class RCNNHead(nn.Module):
         :param pro_features: (N, nr_boxes, d_model)
         :param pos_encodings: (N, nr_boxes, d_model) combined positional encodings
         """
-
         N, nr_boxes = bboxes.shape[:2]
-        
+      
         # roi_feature.
         proposal_boxes = list()
         for b in range(N):
             proposal_boxes.append(Boxes(bboxes[b]))
         roi_features = pooler(features, proposal_boxes)
 
+        
         if pro_features is None:
             pro_features = roi_features.view(N, nr_boxes, self.d_model, -1).mean(-1)
 
         roi_features = roi_features.view(N * nr_boxes, self.d_model, -1).permute(2, 0, 1)
-
+      
         # self_att with positional encodings.
         pro_features = pro_features.view(N, nr_boxes, self.d_model).permute(1, 0, 2)
-        
-        # Add positional encodings to queries and keys if available
-        if pos_encodings is not None:
-            pos_encodings = pos_encodings.permute(1, 0, 2)  # (nr_boxes, N, d_model)
-            query = pro_features + pos_encodings
-            key = pro_features + pos_encodings
+    
+        if self.use_deformable_attn:
+            # Deformable attention path - use actual FPN multi-scale features
+            # Query: proposal features (N, nr_boxes, d_model)
+            query = pro_features.permute(1, 0, 2)  # (N, nr_boxes, d_model)
+            
+            # Add positional encodings to query
+            if pos_encodings is not None:
+                query = query + pos_encodings
+            
+            # Create reference points from bboxes (normalized coordinates)
+            # Convert bbox format (x1, y1, x2, y2) to center (cx, cy)
+            reference_points = torch.zeros(N, nr_boxes, 2, device=bboxes.device, dtype=bboxes.dtype)
+            reference_points[:, :, 0] = (bboxes[:, :, 0] + bboxes[:, :, 2]) / 2.0  # cx
+            reference_points[:, :, 1] = (bboxes[:, :, 1] + bboxes[:, :, 3]) / 2.0  # cy
+            
+            # Normalize to [0, 1] (assuming input is already normalized or in image coordinates)
+            reference_points = torch.clamp(reference_points, 0, 1)
+            
+            # Prepare multi-scale FPN features as value
+            # features is a list of tensors with shape [N, C, H, W]
+            value_list = []
+            spatial_shapes_list = []
+            for feat in features:
+                # feat: (N, C, H, W)
+                bs, c, h, w = feat.shape
+                # Flatten spatial dimensions: (N, C, H, W) -> (N, H*W, C)
+                feat_flat = feat.flatten(2).transpose(1, 2)  # (N, H*W, C)
+                value_list.append(feat_flat)
+                spatial_shapes_list.append([h, w])
+            
+            # Concatenate all levels: (N, sum(H*W), C)
+            value = torch.cat(value_list, dim=1)
+            
+            # Create spatial shapes tensor
+            spatial_shapes = torch.tensor(spatial_shapes_list, dtype=torch.long, device=query.device)
+            
+            # Create level start indices
+            level_start_indices = [0]
+            for i in range(len(spatial_shapes_list) - 1):
+                h, w = spatial_shapes_list[i]
+                level_start_indices.append(level_start_indices[-1] + h * w)
+            level_start_index = torch.tensor(level_start_indices, dtype=torch.long, device=query.device)
+            
+            # Reference points shape: (N, nr_boxes, n_levels, 2)
+            # Expand reference points for all levels
+            reference_points = reference_points.unsqueeze(2).repeat(1, 1, len(features), 1)
+            
+            # Apply deformable attention
+            pro_features2 = self.self_attn(
+                query=query,
+                value=value,
+                reference_points=reference_points,
+                spatial_shapes=spatial_shapes,
+                level_start_index=level_start_index
+            )
+            
+            pro_features2 = pro_features2.permute(1, 0, 2)  # Back to (nr_boxes, N, d_model)
         else:
-            query = pro_features
-            key = pro_features
+            # Standard multi-head attention path (original)
+            # Add positional encodings to queries and keys if available
+            if pos_encodings is not None:
+                pos_encodings = pos_encodings.permute(1, 0, 2)  # (nr_boxes, N, d_model)
+                query = pro_features + pos_encodings
+                key = pro_features + pos_encodings
+            else:
+                query = pro_features
+                key = pro_features
+            
+            pro_features2 = self.self_attn(query, key, value=pro_features)[0]
         
-        pro_features2 = self.self_attn(query, key, value=pro_features)[0]
         pro_features = pro_features + self.dropout1(pro_features2)
         pro_features = self.norm1(pro_features)
 
